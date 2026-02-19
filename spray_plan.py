@@ -18,9 +18,22 @@ chem["Cost/Dose"] = chem["Cost/Dose"].astype(float)
 frac_counts = {}
 recent_fracs = []
 
+
 # -----------------------------
 # Helper functions
 # -----------------------------
+
+def normalize_frac(frac_str):
+    if not frac_str or pd.isna(frac_str):
+        return []
+    # Common separators: comma, +, space, semicolon
+    frac_str = str(frac_str).strip().replace('+', ',').replace(' ', ',').replace(';', ',')
+    parts = [p.strip().lower() for p in frac_str.split(',') if p.strip()]
+    return [p for p in parts if p]  # remove empty
+
+
+def get_all_fracs(row):
+    return normalize_frac(row["FRAC"])
 
 def is_low_risk(frac):
     return str(frac).lower().startswith("m")
@@ -86,21 +99,23 @@ def stage(date):
     return "pre-harvest"
 
 
-def allowed_by_rotation(frac, recent_fracs, frac_counts):
-
-    # Multisite = always allowed
-    if is_low_risk(frac):
+def allowed_by_rotation(frac_list, recent_fracs, frac_counts):
+    """
+    frac_list: list of individual frac codes for ONE product
+    Returns True if this PRODUCT is allowed given current state
+    """
+    # Multisite / low-risk → always ok unless you want stricter rules
+    if any(is_low_risk(f) for f in frac_list):
         return True
 
-    # Cooldown rule
-    if frac in recent_fracs:
+    # 1. Cooldown: none of this product's FRACs can be in recent_fracs
+    if any(f in recent_fracs for f in frac_list):
         return False
 
-    # Seasonal limit rule
-    limit = FRAC_LIMITS.get(frac)
-
-    if limit is not None:
-        if frac_counts.get(frac, 0) >= limit:
+    # 2. Seasonal limit
+    for f in frac_list:
+        limit = FRAC_LIMITS.get(f)
+        if limit is not None and frac_counts.get(f, 0) >= limit:
             return False
 
     return True
@@ -112,108 +127,76 @@ def allowed_by_rotation(frac, recent_fracs, frac_counts):
 # -----------------------------
 
 def build_mix(stage_name, recent_fracs, frac_counts):
-
     weights = stage_weights[stage_name]
     is_critical = stage_name in CRITICAL_STAGES
 
-    # Track achieved protection per disease
-    coverage = {d: 0.0 for d in weights.keys()}
+    coverage = {d: 0.0 for d in weights}
 
     selected = []
-    used_fracs = set()
+    used_fracs_this_mix = set()           # individual fracs used so far in this tank mix
 
-    # -----------------------------
-    # HELPER: compute marginal gain
-    # -----------------------------
     def marginal_gain(row):
-
-        frac = str(row["FRAC"]).strip()
+        fracs = get_all_fracs(row)
         product = str(row["Product"]).lower()
 
-        # Avoid sulfur if possible
+        # Optional: still penalize sulfur outside critical stages
         if "sulfur" in product and not is_critical:
-            return -1
+            return -1.0
 
-        if not allowed_by_rotation(frac, recent_fracs, frac_counts):
-            return -1
+        # Check rotation rules for the whole product
+        if not allowed_by_rotation(fracs, recent_fracs, frac_counts):
+            return -1.0
+
+        # Prevent duplicate FRAC within same spray (very conservative)
+        if any(f in used_fracs_this_mix for f in fracs if not is_low_risk(f)):
+            return -1.0
 
         gain = 0.0
-
         for disease, w in weights.items():
-
             eff = effectiveness(row, disease)
-
-            # Only reward improvement beyond current coverage
             improvement = max(0, eff - coverage[disease])
-
             gain += improvement * w
 
-        # Resistance penalty
-        if not is_low_risk(frac):
-            gain -= frac_counts.get(frac, 0) * 0.5
+        # Optional resistance pressure penalty
+        for f in fracs:
+            if not is_low_risk(f):
+                gain -= frac_counts.get(f, 0) * 0.5
 
         return gain
 
-    # -----------------------------
-    # SELECT PRIMARY PRODUCTS
-    # -----------------------------
-    for _ in range(2):  # max 2 primary actives
-
-        best_gain = 0
+    # ─── Select up to 2 high-risk actives ────────────────────────
+    for _ in range(2):
+        best_gain = -999
         best_row = None
 
         for _, r in chem.iterrows():
-
-            frac = str(r["FRAC"]).strip()
-
-            # Avoid duplicate high-risk FRACs
-            if not is_low_risk(frac) and frac in used_fracs:
-                continue
-
             gain = marginal_gain(r)
-
             if gain > best_gain:
                 best_gain = gain
                 best_row = r
 
-        if best_row is None:
+        if best_row is None or best_gain <= 0:
             break
 
         selected.append(best_row)
-        frac = str(best_row["FRAC"]).strip()
-        used_fracs.add(frac)
+        fracs = get_all_fracs(best_row)
+        used_fracs_this_mix.update(fracs)
 
-        # Update coverage achieved
+        # Update coverage
         for disease in coverage:
-            coverage[disease] = max(
-                coverage[disease],
-                effectiveness(best_row, disease)
-            )
+            coverage[disease] = max(coverage[disease], effectiveness(best_row, disease))
 
-    # -----------------------------
-    # ADD MULTISITE BACKBONE
-    # -----------------------------
-    if is_critical:
-
-        multisites = chem[
-            chem["FRAC"].str.lower().str.startswith("m")
-        ].sort_values("Cost/Dose")
-
+    # ─── Add multisite protectant in critical stages ─────────────
+    if is_critical and len(selected) > 0:  # only if we have some activity
+        multisites = chem[chem["FRAC"].str.lower().str.startswith("m")].sort_values("Cost/Dose")
         for _, ms in multisites.iterrows():
-
-            frac = str(ms["FRAC"]).strip()
-
-            if frac not in used_fracs:
-
+            fracs = get_all_fracs(ms)
+            if not any(f in used_fracs_this_mix for f in fracs):
                 selected.append(ms)
-
-                # Update coverage
+                used_fracs_this_mix.update(fracs)
+                # update coverage (usually multisites are weak → small effect)
                 for disease in coverage:
-                    coverage[disease] = max(
-                        coverage[disease],
-                        effectiveness(ms, disease)
-                    )
-
+                    coverage[disease] = max(coverage[disease], effectiveness(ms, disease))
                 break
 
     return selected
@@ -236,41 +219,42 @@ recent_fracs = []
 plan = []
 
 for d in dates:
-
     s = stage(d)
     mix = build_mix(s, recent_fracs, frac_counts)
     
-    fracs = [str(m["FRAC"]).strip() for m in mix]
-
-    for f in fracs:
-        if not is_low_risk(f):
-            frac_counts[f] = frac_counts.get(f, 0) + 1
-
-    recent_fracs.extend(fracs)
-    recent_fracs = recent_fracs[-FRAC_COOLDOWN:]
-
     if not mix:
         continue
 
-    products = [m["Product"] for m in mix]
-    fracs = [m["FRAC"] for m in mix]
-
-    cost = 0
-
+    # Collect all individual FRACs used in this spray
+    this_spray_fracs = []
     for m in mix:
-        if "sulfur" in m["Product"].lower():
+        this_spray_fracs.extend(get_all_fracs(m))
+
+    # Update counters & recent list
+    for f in this_spray_fracs:
+        if not is_low_risk(f):
+            frac_counts[f] = frac_counts.get(f, 0) + 1
+
+    recent_fracs.extend(this_spray_fracs)
+    recent_fracs = recent_fracs[-FRAC_COOLDOWN:]   # or -FRAC_WINDOW if you prefer
+
+    # Cost calculation (unchanged)
+    cost = 0
+    for m in mix:
+        if "sulfur" in str(m["Product"]).lower():
             cost += m["Cost/Dose"] * NORMAL_ACRES
         else:
             cost += m["Cost/Dose"] * TOTAL_ACRES
 
-    recent_fracs.extend(fracs)
-    recent_fracs = recent_fracs[-FRAC_WINDOW:]
+    products = [str(m["Product"]) for m in mix]
+    frac_strings = [str(m["FRAC"]) for m in mix]   # for display only
 
     plan.append({
         "date": d.strftime("%Y-%m-%d"),
         "stage": s,
         "products": " + ".join(products),
-        "FRACs": ", ".join(fracs),
+        "FRACs": ", ".join(frac_strings),          # original strings for readability
+        "individual_fracs": ", ".join(sorted(set(this_spray_fracs))),  # optional: for debugging
         "cost": round(cost, 2)
     })
 
