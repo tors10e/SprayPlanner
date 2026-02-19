@@ -25,13 +25,13 @@ chem = chem[[
     "FRAC",
     "PHI",
     "Cost/Dose",
-    #"Anthracnose",
-    #"Black Rot",
-    #"Bitter Rot",
-    #"Botrytis",
-   # "Downy",
-   # "Phomopsis",
-   # "Downy"
+    "Anthracnose",
+    "Black Rot",
+    "Bitter Rot",
+    "Botrytis",
+    "Downy",
+    "Phomopsis",
+    "Downy"
 ]].copy()
 
 chem["Primary Disease"] = chem["Primary Disease"].str.lower().fillna("")
@@ -59,6 +59,9 @@ stage_targets = {
     "veraison": ["botrytis"],
     "pre-harvest": ["botrytis"]
 }
+
+CRITICAL_STAGES = {"pre-bloom", "bloom", "fruit-set"}
+
 
 # -----------------------------
 # TANK MIX BUILDER
