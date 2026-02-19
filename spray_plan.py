@@ -53,13 +53,13 @@ def effectiveness(row, disease):
 # -----------------------------
 
 stage_weights = {
-    "budbreak": {"Downy": 1.0, "Phomopsis": 0.8},
-    "pre-bloom": {"Powdery": 1.0, "Downy": 0.9, "Black Rot": 0.8},
-    "bloom": {"Powdery": 1.0, "Downy": 0.9, "Botrytis": 1.0, "Black Rot": 0.7},
-    "fruit-set": {"Powdery": 1.0, "Downy": 0.9},
-    "veraison": {"Botrytis": 1.0},
-    "pre-harvest": {"Botrytis": 1.0},
-    "post-harvest": {"Downy": 1.0, "Phomopsis": 0.8},
+    "budbreak": {"Anthracnose": 0.8, "Powdery": 0.8, "Downy": 0.8, "Phomopsis": 0.8, "Botrytis": 0.0, "Black Rot": 0.5, "Bitter Rot": 0.0},
+    "pre-bloom": {"Anthracnose": 1.0, "Powdery": 1.0, "Downy": 1.0, "Phomopsis": 1.0, "Botrytis": 0.5, "Black Rot": 1.0, "Bitter Rot": 0.5},
+    "bloom": {"Anthracnose": 0.5, "Powdery": 1.0, "Downy": 1.0, "Phomopsis": 0.8, "Botrytis": 0.5, "Black Rot": 1.0, "Bitter Rot": 0.5},
+    "fruit-set": {"Anthracnose": 0.0, "Powdery": 1.0, "Downy": 1.0, "Phomopsis": 0.5, "Botrytis": 0.5, "Black Rot": 0.8, "Bitter Rot": 0.8},
+    "veraison": {"Anthracnose": 0.0, "Powdery": 1.0, "Downy": 0.8, "Phomopsis": 0.0, "Botrytis": 0.8, "Black Rot": 0.0, "Bitter Rot": 1.0},
+    "pre-harvest": {"Anthracnose": 0.0, "Powdery": 0.8, "Downy": 0.5, "Phomopsis": 0.0, "Botrytis": 1.0, "Black Rot": 0.0, "Bitter Rot": 0.8},
+    "post-harvest": {"Anthracnose": 0.0, "Powdery": 0.0, "Downy": 0.5, "Phomopsis": 0.0, "Botrytis": 0.8, "Black Rot": 0.0, "Bitter Rot": 0.5},
 }
 
 
@@ -73,9 +73,9 @@ rating_map = {
 }
 
 FRAC_LIMITS = {
-    "3": 3,
-    "7": 3,
-    "11": 3,
+    "3": 2,
+    "7": 2,
+    "11": 2,
     "4": 2
 }
 
