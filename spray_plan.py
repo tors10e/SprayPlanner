@@ -116,80 +116,79 @@ def build_mix(stage_name, recent_fracs, frac_counts):
     weights = stage_weights[stage_name]
     is_critical = stage_name in CRITICAL_STAGES
 
-    scores = []
+    # Track achieved protection per disease
+    coverage = {d: 0.0 for d in weights.keys()}
+
+    selected = []
+    used_fracs = set()
 
     # -----------------------------
-    # SCORE ALL CANDIDATES
+    # HELPER: compute marginal gain
     # -----------------------------
-    for _, r in chem.iterrows():
+    def marginal_gain(row):
 
-        frac = str(r["FRAC"]).strip()
-        product = str(r["Product"]).lower()
+        frac = str(row["FRAC"]).strip()
+        product = str(row["Product"]).lower()
 
-        # Skip sulfur if possible (sensitive block)
+        # Avoid sulfur if possible
         if "sulfur" in product and not is_critical:
-            continue
+            return -1
 
-        # Enforce resistance rules
         if not allowed_by_rotation(frac, recent_fracs, frac_counts):
-            continue
+            return -1
 
-        # Calculate disease protection score
-        score = 0.0
+        gain = 0.0
+
         for disease, w in weights.items():
-            score += effectiveness(r, disease) * w
 
-        if score <= 0:
-            continue
+            eff = effectiveness(row, disease)
 
-        # Resistance penalty (soft discouragement)
+            # Only reward improvement beyond current coverage
+            improvement = max(0, eff - coverage[disease])
+
+            gain += improvement * w
+
+        # Resistance penalty
         if not is_low_risk(frac):
-            penalty = frac_counts.get(frac, 0) * 0.5
-            score -= penalty
+            gain -= frac_counts.get(frac, 0) * 0.5
 
-        scores.append((score, r))
+        return gain
 
     # -----------------------------
-    # CRITICAL FALLBACK
+    # SELECT PRIMARY PRODUCTS
     # -----------------------------
-    if not scores and is_critical:
+    for _ in range(2):  # max 2 primary actives
+
+        best_gain = 0
+        best_row = None
 
         for _, r in chem.iterrows():
 
             frac = str(r["FRAC"]).strip()
 
-            score = 0.0
-            for disease, w in weights.items():
-                score += effectiveness(r, disease) * w
+            # Avoid duplicate high-risk FRACs
+            if not is_low_risk(frac) and frac in used_fracs:
+                continue
 
-            if score > 0:
-                scores.append((score, r))
+            gain = marginal_gain(r)
 
-    if not scores:
-        return []
+            if gain > best_gain:
+                best_gain = gain
+                best_row = r
 
-    scores.sort(reverse=True, key=lambda x: x[0])
+        if best_row is None:
+            break
 
-    # -----------------------------
-    # SELECT TANK MIX COMPONENTS
-    # -----------------------------
-    selected = []
-    used_fracs = set()
-
-    for score, r in scores:
-
-        frac = str(r["FRAC"]).strip()
-
-        # Avoid duplicate high-risk FRACs in same tank
-        if not is_low_risk(frac) and frac in used_fracs:
-            continue
-
-        selected.append(r)
+        selected.append(best_row)
+        frac = str(best_row["FRAC"]).strip()
         used_fracs.add(frac)
 
-        # Typical tank = 2 actives
-        if len(selected) >= 2:
-            break
+        # Update coverage achieved
+        for disease in coverage:
+            coverage[disease] = max(
+                coverage[disease],
+                effectiveness(best_row, disease)
+            )
 
     # -----------------------------
     # ADD MULTISITE BACKBONE
@@ -201,11 +200,20 @@ def build_mix(stage_name, recent_fracs, frac_counts):
         ].sort_values("Cost/Dose")
 
         for _, ms in multisites.iterrows():
+
             frac = str(ms["FRAC"]).strip()
 
             if frac not in used_fracs:
+
                 selected.append(ms)
-                used_fracs.add(frac)
+
+                # Update coverage
+                for disease in coverage:
+                    coverage[disease] = max(
+                        coverage[disease],
+                        effectiveness(ms, disease)
+                    )
+
                 break
 
     return selected
