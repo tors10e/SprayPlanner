@@ -60,11 +60,11 @@ rating_map = {
 
 FRAC_LIMITS = {
     "3": 3,
-    "7": 2,
-    "11": 2
+    "7": 3,
+    "11": 3
 }
 
-FRAC_COOLDOWN = 2  # sprays before reuse allowed
+FRAC_COOLDOWN = 3  # sprays before reuse allowed
 
 
 def effectiveness(row, disease):
@@ -239,6 +239,15 @@ for d in dates:
 
     s = stage(d)
     mix = build_mix(s, recent_fracs, frac_counts)
+    
+    fracs = [str(m["FRAC"]).strip() for m in mix]
+
+    for f in fracs:
+        if not is_low_risk(f):
+            frac_counts[f] = frac_counts.get(f, 0) + 1
+
+    recent_fracs.extend(fracs)
+    recent_fracs = recent_fracs[-FRAC_COOLDOWN:]
 
     if not mix:
         continue
