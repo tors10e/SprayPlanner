@@ -1,16 +1,8 @@
+import spray_config
 import pandas as pd
 from datetime import datetime, timedelta
 
-EXCEL_FILE = "./SprayPlanAndMaterials_2025.csv"
-
-TOTAL_ACRES = 4
-SULFUR_SENSITIVE_ACRES = 1
-NORMAL_ACRES = TOTAL_ACRES - SULFUR_SENSITIVE_ACRES
-
-FRAC_WINDOW = 3
-DEFAULT_INTERVAL = 14
-
-chem = pd.read_csv(EXCEL_FILE, dtype={'FRAC': str})
+chem = pd.read_csv(spray_config.EXCEL_FILE, dtype={'FRAC': str})
 chem.columns = chem.columns.str.strip()
 chem['FRAC'] = chem['FRAC'].fillna('')
 chem["Cost/Dose"] = chem["Cost/Dose"].astype(float)
@@ -52,34 +44,6 @@ def effectiveness(row, disease):
 # Disease weights by stage
 # -----------------------------
 
-stage_weights = {
-    "budbreak": {"Anthracnose": 0.8, "Powdery": 0.8, "Downy": 0.8, "Phomopsis": 0.8, "Botrytis": 0.0, "Black Rot": 0.5, "Bitter Rot": 0.0},
-    "pre-bloom": {"Anthracnose": 1.0, "Powdery": 1.0, "Downy": 1.0, "Phomopsis": 1.0, "Botrytis": 0.5, "Black Rot": 1.0, "Bitter Rot": 0.5},
-    "bloom": {"Anthracnose": 0.5, "Powdery": 1.0, "Downy": 1.0, "Phomopsis": 0.8, "Botrytis": 0.5, "Black Rot": 1.0, "Bitter Rot": 0.5},
-    "fruit-set": {"Anthracnose": 0.0, "Powdery": 1.0, "Downy": 1.0, "Phomopsis": 0.5, "Botrytis": 0.5, "Black Rot": 0.8, "Bitter Rot": 0.8},
-    "veraison": {"Anthracnose": 0.0, "Powdery": 1.0, "Downy": 0.8, "Phomopsis": 0.0, "Botrytis": 0.8, "Black Rot": 0.0, "Bitter Rot": 1.0},
-    "pre-harvest": {"Anthracnose": 0.0, "Powdery": 0.8, "Downy": 0.5, "Phomopsis": 0.0, "Botrytis": 1.0, "Black Rot": 0.0, "Bitter Rot": 0.8},
-    "post-harvest": {"Anthracnose": 0.0, "Powdery": 0.0, "Downy": 0.5, "Phomopsis": 0.0, "Botrytis": 0.8, "Black Rot": 0.0, "Bitter Rot": 0.5},
-}
-
-
-CRITICAL_STAGES = {"pre-bloom", "bloom", "fruit-set"}
-
-rating_map = {
-    "e": 4.0,
-    "vg": 3.0,
-    "g": 2.0,
-    "f": 1.0
-}
-
-FRAC_LIMITS = {
-    "3": 2,
-    "7": 2,
-    "11": 2,
-    "4": 2
-}
-
-FRAC_COOLDOWN = 3  # sprays before reuse allowed
 
 
 def effectiveness(row, disease):
@@ -88,7 +52,7 @@ def effectiveness(row, disease):
 
     val = str(row[disease]).strip().lower()
 
-    return rating_map.get(val, 0.0)
+    return spray_config.rating_map.get(val, 0.0)
 
 
 def stage(date):
@@ -117,7 +81,7 @@ def allowed_by_rotation(frac_list, recent_fracs, frac_counts):
 
     # 2. Seasonal limit
     for f in frac_list:
-        limit = FRAC_LIMITS.get(f)
+        limit = spray_config.FRAC_LIMITS.get(f)
         if limit is not None and frac_counts.get(f, 0) >= limit:
             return False
 
@@ -130,8 +94,8 @@ def allowed_by_rotation(frac_list, recent_fracs, frac_counts):
 # -----------------------------
 
 def build_mix(stage_name, recent_fracs, frac_counts):
-    weights = stage_weights[stage_name]
-    is_critical = stage_name in CRITICAL_STAGES
+    weights = spray_config.stage_weights[stage_name]
+    is_critical = stage_name in spray_config.CRITICAL_STAGES
 
     coverage = {d: 0.0 for d in weights}
 
@@ -142,16 +106,12 @@ def build_mix(stage_name, recent_fracs, frac_counts):
         fracs = get_all_fracs(row)
         product = str(row["Product"]).lower()
 
-        # Optional: still penalize sulfur outside critical stages
-        # if "sulfur" in product and not is_critical:
-        #     return -1.0
-
         # Check rotation rules for the whole product
         if not allowed_by_rotation(fracs, recent_fracs, frac_counts):
             return -1.0
 
         # Prevent duplicate FRAC within same spray (very conservative)
-        if any(f in used_fracs_this_mix for f in fracs if not is_low_risk(f)):
+        if all(f in used_fracs_this_mix for f in fracs if not is_low_risk(f)):
             return -1.0
 
         gain = 0.0
@@ -159,6 +119,7 @@ def build_mix(stage_name, recent_fracs, frac_counts):
             eff = effectiveness(row, disease)
             improvement = max(0, eff - coverage[disease])
             gain += improvement * w
+
 
         # Optional resistance pressure penalty
         for f in fracs:
@@ -217,7 +178,7 @@ dates = []
 d = start
 while d <= end:
     dates.append(d)
-    d += timedelta(days=DEFAULT_INTERVAL)
+    d += timedelta(days=spray_config.DEFAULT_INTERVAL)
 
 recent_fracs = []
 plan = []
@@ -240,15 +201,15 @@ for d in dates:
             frac_counts[f] = frac_counts.get(f, 0) + 1
 
     recent_fracs.extend(this_spray_fracs)
-    recent_fracs = recent_fracs[-FRAC_COOLDOWN:]   # or -FRAC_WINDOW if you prefer
+    recent_fracs = recent_fracs[-spray_config.FRAC_COOLDOWN:]   # or -spray_config.FRAC_WINDOW if you prefer
 
     # Cost calculation (unchanged)
     cost = 0
     for m in mix:
         if "sulfur" in str(m["Product"]).lower():
-            cost += m["Cost/Dose"] * NORMAL_ACRES
+            cost += m["Cost/Dose"] * spray_config.NORMAL_ACRES
         else:
-            cost += m["Cost/Dose"] * TOTAL_ACRES
+            cost += m["Cost/Dose"] * spray_config.TOTAL_ACRES
 
     products = [str(m["Product"]) for m in mix]
     frac_strings = [str(m["FRAC"]) for m in mix]   # for display only
