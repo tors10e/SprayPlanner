@@ -143,8 +143,8 @@ def build_mix(stage_name, recent_fracs, frac_counts):
         product = str(row["Product"]).lower()
 
         # Optional: still penalize sulfur outside critical stages
-        if "sulfur" in product and not is_critical:
-            return -1.0
+        # if "sulfur" in product and not is_critical:
+        #     return -1.0
 
         # Check rotation rules for the whole product
         if not allowed_by_rotation(fracs, recent_fracs, frac_counts):
@@ -189,17 +189,18 @@ def build_mix(stage_name, recent_fracs, frac_counts):
         for disease in coverage:
             coverage[disease] = max(coverage[disease], effectiveness(best_row, disease))
 
-    # ─── Add multisite protectant in critical stages ─────────────
+    # ─── Add active chemical protectant in critical stages ─────────────
     if is_critical and len(selected) > 0:  # only if we have some activity
-        multisites = chem[chem["FRAC"].str.lower().str.startswith("m")].sort_values("Cost/Dose")
-        for _, ms in multisites.iterrows():
-            fracs = get_all_fracs(ms)
+
+        active_products = chem[~chem["FRAC"].str.lower().str.startswith("m")].sort_values("Cost/Dose")
+        for _, active_product in active_products.iterrows():
+            fracs = get_all_fracs(active_product)
             if not any(f in used_fracs_this_mix for f in fracs):
-                selected.append(ms)
+                selected.append(active_product)
                 used_fracs_this_mix.update(fracs)
                 # update coverage (usually multisites are weak → small effect)
                 for disease in coverage:
-                    coverage[disease] = max(coverage[disease], effectiveness(ms, disease))
+                    coverage[disease] = max(coverage[disease], effectiveness(active_product, disease))
                 break
 
     return selected
