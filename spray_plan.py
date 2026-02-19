@@ -54,10 +54,10 @@ def stage(date):
 stage_targets = {
     "budbreak": ["downy"],
     "pre-bloom": ["powdery", "downy"],
-    "bloom": ["botritus", "powdery", "downy"],
+    "bloom": ["botrytis", "powdery", "downy"],
     "fruit-set": ["powdery", "downy"],
-    "veraison": ["botritus"],
-    "pre-harvest": ["botritus"]
+    "veraison": ["botrytis"],
+    "pre-harvest": ["botrytis"]
 }
 
 # -----------------------------
