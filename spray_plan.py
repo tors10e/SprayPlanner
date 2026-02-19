@@ -8,7 +8,7 @@ SULFUR_SENSITIVE_ACRES = 1
 NORMAL_ACRES = TOTAL_ACRES - SULFUR_SENSITIVE_ACRES
 
 FRAC_WINDOW = 3
-DEFAULT_INTERVAL = 10
+DEFAULT_INTERVAL = 14
 
 chem = pd.read_csv(EXCEL_FILE, dtype={'FRAC': str})
 chem.columns = chem.columns.str.strip()
@@ -58,7 +58,8 @@ stage_weights = {
     "bloom": {"Powdery": 1.0, "Downy": 0.9, "Botrytis": 1.0, "Black Rot": 0.7},
     "fruit-set": {"Powdery": 1.0, "Downy": 0.9},
     "veraison": {"Botrytis": 1.0},
-    "pre-harvest": {"Botrytis": 1.0}
+    "pre-harvest": {"Botrytis": 1.0},
+    "post-harvest": {"Downy": 1.0, "Phomopsis": 0.8},
 }
 
 
@@ -74,7 +75,8 @@ rating_map = {
 FRAC_LIMITS = {
     "3": 3,
     "7": 3,
-    "11": 3
+    "11": 3,
+    "4": 2
 }
 
 FRAC_COOLDOWN = 3  # sprays before reuse allowed
@@ -96,7 +98,8 @@ def stage(date):
     if m == 6: return "bloom"
     if m == 7: return "fruit-set"
     if m == 8: return "veraison"
-    return "pre-harvest"
+    if m == 9: return "pre-harvest"
+    return "post-harvest"
 
 
 def allowed_by_rotation(frac_list, recent_fracs, frac_counts):
@@ -207,7 +210,7 @@ def build_mix(stage_name, recent_fracs, frac_counts):
 # -----------------------------
 
 start = datetime(2026, 4, 20)
-end = datetime(2026, 9, 20)
+end = datetime(2026, 10, 20)
 
 dates = []
 d = start
