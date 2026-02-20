@@ -106,8 +106,6 @@ def get_active_chems(chem, disease):
     return chem[~chem["FRAC"].str.lower().str.startswith("m", na=False)]
 
 
-
-
 def update_frac_history(fracs, frac_history):
     for f in fracs:
         if f in spray_config.MULTISITE_FRACS:

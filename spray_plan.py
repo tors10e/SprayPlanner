@@ -64,5 +64,3 @@ spray_materials = helpers.get_chemical_materials()
 plan = product_selector.optimize_season(schedule, spray_materials, sulfur_acres=spray_config.SULFUR_SENSITIVE_ACRES, total_acres=spray_config.TOTAL_ACRES)
 plan_df = pd.DataFrame(plan)
 print(plan_df)
-# for spray in plan:
-#     print(spray)
