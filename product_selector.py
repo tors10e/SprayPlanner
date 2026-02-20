@@ -87,7 +87,6 @@ def build_cost_optimal_mix(
 
     critical = stage in spray_config.CRITICAL_STAGES
 
-    # Only products that treat at least one target disease
     candidates = materials[
         materials.apply(
             lambda r: any(helpers.effectiveness(r, d) > 0 for d in target_diseases),
@@ -95,61 +94,84 @@ def build_cost_optimal_mix(
         )
     ]
 
-    best_mix = None
-    best_cost = float("inf")
+    high_priority = {
+        d for d in target_diseases
+        if stage_weights[d] >= spray_config.HIGH_PRIORITY_THRESHOLD
+    }
 
-    for r in range(1, max_products + 1):
-        for combo in itertools.combinations(candidates.index, r):
+    # -------------------------------------------------------
+    # Try increasingly relaxed constraints
+    # -------------------------------------------------------
+
+    for allowed_products in range(1, max_products + 3):
+
+        for combo in itertools.combinations(candidates.index, allowed_products):
 
             mix = candidates.loc[list(combo)]
 
-            multisite_flags = [helpers.is_multisite(row) for _, row in mix.iterrows()]
+            multisite_flags = [helpers.is_multisite(r) for _, r in mix.iterrows()]
             has_multisite = any(multisite_flags)
             has_active = any(not m for m in multisite_flags)
 
-            # --------------------------------------------
-            # POLICY
-            # --------------------------------------------
+            # Multisite required always
+            if not has_multisite:
+                continue
 
-            if critical:
-                if not (has_multisite and has_active):
-                    continue
-            else:
-                if has_active:
+            # Critical → prefer active
+            if critical and not has_active:
+                continue
+
+            # ------------------------------------------------
+            # Disease coverage
+            # ------------------------------------------------
+
+            covered = set()
+            active_covered = set()
+
+            for _, row in mix.iterrows():
+                for d in target_diseases:
+                    if helpers.effectiveness(row, d) > 0:
+                        covered.add(d)
+                        if not helpers.is_multisite(row):
+                            active_covered.add(d)
+
+            if covered != set(target_diseases):
+                continue
+
+            # ------------------------------------------------
+            # Prefer actives for high-priority diseases
+            # (but don't require all)
+            # ------------------------------------------------
+
+            if critical and high_priority:
+                coverage_ratio = (
+                    len(high_priority & active_covered) /
+                    len(high_priority)
+                )
+
+                if coverage_ratio < 0.5:
                     continue
 
-            # --------------------------------------------
-            # FRAC ROTATION
-            # --------------------------------------------
+            # ------------------------------------------------
+            # FRAC rotation (soft constraint)
+            # ------------------------------------------------
 
             all_fracs = []
             for _, row in mix.iterrows():
                 all_fracs += helpers.normalize_frac(row["FRAC"])
 
             if helpers.violates_rotation(all_fracs, frac_history):
-                continue
+                # Skip only if we still have room to search
+                if allowed_products <= max_products:
+                    continue
 
-            # --------------------------------------------
-            # DISEASE COVERAGE
-            # --------------------------------------------
+            # ------------------------------------------------
+            # Choose lowest cost
+            # ------------------------------------------------
 
-            covered = set()
+            return mix.sort_values("Cost/Dose")
 
-            for _, row in mix.iterrows():
-                for d in target_diseases:
-                    if helpers.effectiveness(row, d) > 0:
-                        covered.add(d)
-
-            if covered != set(target_diseases):
-                continue
-
-            cost = mix["Cost/Dose"].sum()
-
-            if cost < best_cost:
-                best_cost = cost
-                best_mix = mix
-
-    return best_mix
+    return None
 
 
 # Builds the seasonal plan by applying the cost-optimal mix builder to each spray date, while tracking FRAC usage and respecting rotation rules and critical period requirements
@@ -186,7 +208,9 @@ def optimize_season(schedule, materials, total_acres=4):
                 "date": spray["date"],
                 "stage": stage,
                 "products": list(mix["Product"]),
-                "Cost/Dose": mix["Cost/Dose"].sum() * total_acres,
+                "FRACs": list(mix["FRAC"]),
+                "Cost/Dose": mix["Cost/Dose"].sum(),
+                "Total Cost": mix["Cost/Dose"].sum() * total_acres,
             }
         )
 

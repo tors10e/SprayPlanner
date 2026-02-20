@@ -18,12 +18,16 @@ CRITICAL_STAGES = {"pre-bloom", "bloom", "fruit-set"}
 
 EFF_MAP = {"e": 1.0, "vg": 0.85, "g": 0.65, "f": 0.4, "": 0.0}
 
+HIGH_PRIORITY_THRESHOLD = 0.8
+
 rating_map = {
     "e": 4.0,
     "vg": 3.0,
     "g": 2.0,
     "f": 1.0
 }
+
+MAX_PRODUCTS_PER_SPRAY = 4
 
 MINIMUM_SPRAY_EFFECTIVENESS = 3  # can adjust based on your tolerance for risk
 
