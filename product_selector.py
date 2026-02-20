@@ -16,60 +16,60 @@ def has_activity(row, disease):
     return spray_config.rating_map.get(val, 0.0) > spray_config.MINIMUM_SPRAY_EFFECTIVENESS
 
 
-def cheapest_full_coverage(chem, stage_name):
+# def cheapest_full_coverage(chem, stage_name):
 
-    weights = spray_config.stage_weights[stage_name]
+#     weights = spray_config.stage_weights[stage_name]
 
-    # Diseases we must control
-    target_diseases = [
-        d for d, w in weights.items() if w > 0
-    ]
+#     # Diseases we must control
+#     target_diseases = [
+#         d for d, w in weights.items() if w > 0
+#     ]
 
-    if not target_diseases:
-        return []
+#     if not target_diseases:
+#         return []
 
-    best_cost = float("inf")
-    mix = None
+#     best_cost = float("inf")
+#     mix = None
 
-    products = list(chem.iterrows())
+#     products = list(chem.iterrows())
 
-    # Try combinations of increasing size
-    for r in range(1, 4):  # up to 3 products
+#     # Try combinations of increasing size
+#     for r in range(1, 4):  # up to 3 products
 
-        for combo in itertools.combinations(products, r):
+#         for combo in itertools.combinations(products, r):
 
-            rows = [c[1] for c in combo]
+#             rows = [c[1] for c in combo]
 
-            # Check coverage
-            covered = set()
+#             # Check coverage
+#             covered = set()
 
-            for row in rows:
-                for disease in target_diseases:
-                    if has_activity(row, disease):
-                        covered.add(disease)
+#             for row in rows:
+#                 for disease in target_diseases:
+#                     if has_activity(row, disease):
+#                         covered.add(disease)
 
-            if len(covered) != len(target_diseases):
-                continue
+#             if len(covered) != len(target_diseases):
+#                 continue
 
-            # Compute cost (handles sulfur-sensitive acreage)
-            cost = 0
-            for row in rows:
-                product_name = str(row["Product"]).lower()
+#             # Compute cost (handles sulfur-sensitive acreage)
+#             cost = 0
+#             for row in rows:
+#                 product_name = str(row["Product"]).lower()
 
-                if "sulfur" in product_name:
-                    cost += row["Cost/Dose"] * spray_config.NORMAL_ACRES
-                else:
-                    cost += row["Cost/Dose"] * spray_config.TOTAL_ACRES
+#                 if "sulfur" in product_name:
+#                     cost += row["Cost/Dose"] * spray_config.NORMAL_ACRES
+#                 else:
+#                     cost += row["Cost/Dose"] * spray_config.TOTAL_ACRES
 
-            if cost < best_cost:
-                best_cost = cost
-                mix = rows
+#             if cost < best_cost:
+#                 best_cost = cost
+#                 mix = rows
 
-        # Stop early if solution found at this size
-        if mix is not None:
-            break
+#         # Stop early if solution found at this size
+#         if mix is not None:
+#             break
 
-    return mix, best_cost
+#     return mix, best_cost
 
 
 #  Builds a cost-optimal mix that covers all diseases for the stage, respecting rotation and critical period rules
@@ -78,7 +78,7 @@ def build_cost_optimal_mix(
     stage,
     stage_weights,
     frac_history,
-    max_products=3,
+    spray_date,
 ):
 
     target_diseases = [d for d, w in stage_weights.items() if w > 0]
@@ -89,11 +89,13 @@ def build_cost_optimal_mix(
 
     candidates = materials[
         materials.apply(
-            lambda r: any(helpers.effectiveness(r, d) > 0 for d in target_diseases),
+            lambda r: (
+                any(helpers.effectiveness(r, d) > 0 for d in target_diseases)
+                and helpers.allowed_by_phi(r, spray_date)
+            ),
             axis=1
         )
     ]
-
     high_priority = {
         d for d in target_diseases
         if stage_weights[d] >= spray_config.HIGH_PRIORITY_THRESHOLD
@@ -103,7 +105,7 @@ def build_cost_optimal_mix(
     # Try increasingly relaxed constraints
     # -------------------------------------------------------
 
-    for allowed_products in range(1, max_products + 3):
+    for allowed_products in range(1, spray_config.MAX_PRODUCTS_PER_SPRAY + 3):
 
         for combo in itertools.combinations(candidates.index, allowed_products):
 
@@ -162,7 +164,7 @@ def build_cost_optimal_mix(
 
             if helpers.violates_rotation(all_fracs, frac_history):
                 # Skip only if we still have room to search
-                if allowed_products <= max_products:
+                if allowed_products <= spray_config.MAX_PRODUCTS_PER_SPRAY:
                     continue
 
             # ------------------------------------------------
@@ -189,7 +191,8 @@ def optimize_season(schedule, materials, total_acres=4):
             materials,
             stage,
             weights,
-            frac_history
+            frac_history,
+            spray["date"]
         )
 
         if mix is None:

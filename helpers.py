@@ -1,10 +1,20 @@
 import pandas as pd
 import spray_config
-
+from datetime import datetime
 # -----------------------------
 # Helper functions
 # -----------------------------
 
+
+def allowed_by_phi(row, spray_date):
+    phi = row.get("PHI", 0)
+
+    if pd.isna(phi):
+        return True
+
+    days_to_harvest = (spray_config.HARVEST_DATE - datetime.strptime(spray_date, "%Y-%m-%d")).days
+
+    return phi <= days_to_harvest - spray_config.PHI_BUFFER_DAYS
 
 
 def allowed_by_rotation(frac_list, recent_fracs, frac_counts):
