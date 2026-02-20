@@ -9,10 +9,6 @@ import itertools
 import product_selector
 
 
-chem = pd.read_csv(spray_config.EXCEL_FILE, dtype={'FRAC': str})
-chem.columns = chem.columns.str.strip()
-chem['FRAC'] = chem['FRAC'].fillna('')
-chem["Cost/Dose"] = chem["Cost/Dose"].astype(float)
 
 def build_mix(stage_name, recent_fracs, frac_counts):
     weights = spray_config.stage_weights[stage_name]

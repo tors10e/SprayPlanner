@@ -59,8 +59,8 @@ import scheduler
 # print("\nSeason Cost: $", plan_df["cost"].sum())
 
 schedule = scheduler.build_schedule()
-spray_materials = helpers.get_chemical_materials()
+spray_materials = helpers.get_chemical_data()
 
-plan = product_selector.optimize_season(schedule, spray_materials, sulfur_acres=spray_config.SULFUR_SENSITIVE_ACRES, total_acres=spray_config.TOTAL_ACRES)
+plan = product_selector.optimize_season(schedule, spray_materials, total_acres=spray_config.TOTAL_ACRES)
 plan_df = pd.DataFrame(plan)
 print(plan_df)

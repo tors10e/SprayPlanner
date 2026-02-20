@@ -78,44 +78,50 @@ def build_cost_optimal_mix(
     stage,
     stage_weights,
     frac_history,
-    sulfur_sensitive=False,
     max_products=3,
 ):
 
     target_diseases = [d for d, w in stage_weights.items() if w > 0]
     if not target_diseases:
-        return []
+        return None
 
-    need_active = stage in spray_config.CRITICAL_STAGES
+    critical = stage in spray_config.CRITICAL_STAGES
+
+    # Only products that treat at least one target disease
+    candidates = materials[
+        materials.apply(
+            lambda r: any(helpers.effectiveness(r, d) > 0 for d in target_diseases),
+            axis=1
+        )
+    ]
 
     best_mix = None
     best_cost = float("inf")
-
-    candidates = materials.copy()
-
-    if sulfur_sensitive and "SulfurSensitive" in candidates.columns:
-        candidates = candidates[candidates["SulfurSensitive"] != "Yes"]
-
-    # Pre-filter useful products
-    candidates = candidates[
-        candidates.apply(lambda r: helpers.covers_diseases(r, target_diseases), axis=1)
-    ]
 
     for r in range(1, max_products + 1):
         for combo in itertools.combinations(candidates.index, r):
 
             mix = candidates.loc[list(combo)]
 
-            # --- Must contain multisite backbone ---
-            if not any(helpers.is_multisite(row) for _, row in mix.iterrows()):
-                continue
+            multisite_flags = [helpers.is_multisite(row) for _, row in mix.iterrows()]
+            has_multisite = any(multisite_flags)
+            has_active = any(not m for m in multisite_flags)
 
-            # --- Active required during critical periods ---
-            if need_active:
-                if all(helpers.is_multisite(row) for _, row in mix.iterrows()):
+            # --------------------------------------------
+            # POLICY
+            # --------------------------------------------
+
+            if critical:
+                if not (has_multisite and has_active):
+                    continue
+            else:
+                if has_active:
                     continue
 
-            # --- FRAC rotation ---
+            # --------------------------------------------
+            # FRAC ROTATION
+            # --------------------------------------------
+
             all_fracs = []
             for _, row in mix.iterrows():
                 all_fracs += helpers.normalize_frac(row["FRAC"])
@@ -123,8 +129,12 @@ def build_cost_optimal_mix(
             if helpers.violates_rotation(all_fracs, frac_history):
                 continue
 
-            # --- Disease coverage ---
+            # --------------------------------------------
+            # DISEASE COVERAGE
+            # --------------------------------------------
+
             covered = set()
+
             for _, row in mix.iterrows():
                 for d in target_diseases:
                     if helpers.effectiveness(row, d) > 0:
@@ -143,7 +153,7 @@ def build_cost_optimal_mix(
 
 
 # Builds the seasonal plan by applying the cost-optimal mix builder to each spray date, while tracking FRAC usage and respecting rotation rules and critical period requirements
-def optimize_season(schedule, materials, sulfur_acres=1, total_acres=4):
+def optimize_season(schedule, materials, total_acres=4):
 
     frac_history = {}
     season_plan = []
@@ -157,8 +167,7 @@ def optimize_season(schedule, materials, sulfur_acres=1, total_acres=4):
             materials,
             stage,
             weights,
-            frac_history,
-            sulfur_sensitive=(sulfur_acres > 0),
+            frac_history
         )
 
         if mix is None:

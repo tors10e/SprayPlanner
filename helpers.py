@@ -5,6 +5,8 @@ import spray_config
 # Helper functions
 # -----------------------------
 
+
+
 def allowed_by_rotation(frac_list, recent_fracs, frac_counts):
     """
     frac_list: list of individual frac codes for ONE product
@@ -50,13 +52,13 @@ def normalize_frac(frac_str):
     return [p for p in parts if p]  # remove empty
 
 
-def get_chemical_materials():
+def get_chemical_data():
     chem = pd.read_csv(spray_config.EXCEL_FILE, dtype={'FRAC': str})
     chem.columns = chem.columns.str.strip()
     chem['FRAC'] = chem['FRAC'].fillna('')
     chem["Cost/Dose"] = chem["Cost/Dose"].astype(float)
+    chem =chem[chem['Cost/Dose'] > 0] 
     return chem
-
 
 def get_all_fracs(row):
     return normalize_frac(row["FRAC"])
