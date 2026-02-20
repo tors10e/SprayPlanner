@@ -186,7 +186,7 @@ def optimize_season(schedule, materials, total_acres=4):
                 "date": spray["date"],
                 "stage": stage,
                 "products": list(mix["Product"]),
-                "Cost/Dose": mix["Cost/Dose"].sum(),
+                "Cost/Dose": mix["Cost/Dose"].sum() * total_acres,
             }
         )
 
