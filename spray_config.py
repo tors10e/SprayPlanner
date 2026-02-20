@@ -27,7 +27,7 @@ rating_map = {
 
 MINIMUM_SPRAY_EFFECTIVENESS = 3  # can adjust based on your tolerance for risk
 
-MULTISITE_FRACS = {"M02", "M03", "M04", "M05"}
+MULTISITE_FRACS = {"M01","M02", "M03", "M04", "M05"}
 
 FRAC_COOLDOWN = 1  # sprays before reuse allowed
 
