@@ -24,6 +24,7 @@ def build_cost_optimal_mix(
     stage_weights,
     frac_history,
     spray_date,
+    product_usage
 ):
 
     target_diseases = [d for d, w in stage_weights.items() if w > 0]
@@ -109,6 +110,9 @@ def build_cost_optimal_mix(
                 if allowed_products <= spray_config.MAX_PRODUCTS_PER_SPRAY:
                     continue
 
+
+            if helpers.violates_max_applications(mix, product_usage):
+                continue
             # ------------------------------------------------
             # Choose lowest cost
             # ------------------------------------------------
@@ -123,6 +127,7 @@ def optimize_season(schedule, materials, total_acres=4):
 
     frac_history = {}
     season_plan = []
+    product_usage = {}
 
     for spray in schedule:
 
@@ -134,12 +139,17 @@ def optimize_season(schedule, materials, total_acres=4):
             stage,
             weights,
             frac_history,
-            spray["date"]
+            spray["date"],
+            product_usage
         )
 
         if mix is None:
             season_plan.append({"date": spray["date"], "mix": "NO VALID MIX"})
             continue
+
+        for _, row in mix.iterrows():
+            product = row["Product"]
+            product_usage[product] = product_usage.get(product, 0) + 1
 
         # Update FRAC history
         all_fracs = []

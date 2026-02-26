@@ -1,7 +1,7 @@
 from datetime import datetime
 
 
-EXCEL_FILE = "./SprayPlanAndMaterials_2025.csv"
+EXCEL_FILE = "./spray_product_information.csv"
 
 TOTAL_ACRES = 4
 SULFUR_SENSITIVE_ACRES = 0

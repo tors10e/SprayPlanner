@@ -133,3 +133,19 @@ def violates_rotation(fracs, frac_history):
         if frac_history.get(f, 0) >= spray_config.FRAC_COOLDOWN:
             return True
     return False
+
+
+def violates_max_applications(mix, product_usage):
+
+    for _, row in mix.iterrows():
+
+        product = row["Product"]
+        max_apps = row.get("Max_Applications", None)
+
+        if pd.isna(max_apps) or max_apps == "":
+            continue  # no restriction recorded
+
+        if product_usage.get(product, 0) >= int(max_apps):
+            return True
+
+    return False
