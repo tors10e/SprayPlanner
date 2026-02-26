@@ -20,7 +20,7 @@ CRITICAL_STAGES = {"pre-bloom", "bloom", "fruit-set"}
 EFF_MAP = {"e": 1.0, "vg": 0.85, "g": 0.65, "f": 0.4, "": 0.0}
 HIGH_PRIORITY_THRESHOLD = 0.8
 HARVEST_DATE = datetime(2026, 9, 20)
-START_DATE = "2026-04-20"
+START_DATE = "2026-04-01"
 END_DATE = "2026-10-20"
 PHI_BUFFER_DAYS = 0   # extra safety margin if desired
 
@@ -44,7 +44,7 @@ rating_map = {
 }
 
 stage_weights = {
-    "budbreak": {"Anthracnose": 0.8, "Powdery": 0.8, "Downy": 0.8, "Phomopsis": 0.8, "Botrytis": 0.0, "Black Rot": 0.5, "Bitter Rot": 0.0},
+    "budbreak": {"Anthracnose": 0.5, "Powdery": 0.5, "Downy": 0.5, "Phomopsis": 0.5, "Botrytis": 0.0, "Black Rot": 0.5, "Bitter Rot": 0.0},
     "pre-bloom": {"Anthracnose": 1.0, "Powdery": 1.0, "Downy": 1.0, "Phomopsis": 1.0, "Botrytis": 0.5, "Black Rot": 1.0, "Bitter Rot": 0.5},
     "bloom": {"Anthracnose": 0.5, "Powdery": 1.0, "Downy": 1.0, "Phomopsis": 0.8, "Botrytis": 0.5, "Black Rot": 1.0, "Bitter Rot": 0.5},
     "fruit-set": {"Anthracnose": 0.0, "Powdery": 1.0, "Downy": 1.0, "Phomopsis": 0.5, "Botrytis": 0.5, "Black Rot": 0.8, "Bitter Rot": 0.8},

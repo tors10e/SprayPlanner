@@ -2,7 +2,7 @@
 import helpers
 import itertools
 import spray_config
-
+import critcal_period 
 
 #---------------- cost optimal coverage by stage-----------------------#
 
@@ -30,17 +30,12 @@ def build_cost_optimal_mix(
     if not target_diseases:
         return None
 
+    # Determin if current stage is a critical period  
     critical = stage in spray_config.CRITICAL_STAGES
 
-    candidates = materials[
-        materials.apply(
-            lambda r: (
-                any(helpers.effectiveness(r, d) > 0 for d in target_diseases)
-                and helpers.allowed_by_phi(r, spray_date)
-            ),
-            axis=1
-        )
-    ]
+    # Filter candidates that have any activity against target diseases and are allowed by PHI based on if its a crtical period or not. During critical periods, we will be more strict about PHI and prioritize products that are allowed by PHI for the spray date.
+    candidates = critcal_period.get_candidates(critical, materials, target_diseases, spray_date)
+
     high_priority = {
         d for d in target_diseases
         if stage_weights[d] >= spray_config.HIGH_PRIORITY_THRESHOLD
@@ -64,7 +59,9 @@ def build_cost_optimal_mix(
             if not has_multisite:
                 continue
 
+            
             # Critical → prefer active
+            # make sure mix has an active ingredient before movin on to the next spray date.
             if critical and not has_active:
                 continue
 
@@ -96,7 +93,7 @@ def build_cost_optimal_mix(
                     len(high_priority)
                 )
 
-                if coverage_ratio < 0.5:
+                if coverage_ratio <= 0.5:
                     continue
 
             # ------------------------------------------------

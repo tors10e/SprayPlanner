@@ -48,10 +48,9 @@ def effectiveness(product_row, disease):
     return spray_config.EFF_MAP.get(val, 0.0)
 
 
-def is_multisite(product_row):
-    fracs = normalize_frac(product_row["FRAC"])
-    return any(f in spray_config.MULTISITE_FRACS for f in fracs)
-
+def is_multisite(row):
+    fracs = normalize_frac(row["FRAC"])
+    return any(f.upper().startswith("M") for f in fracs)
 
 def normalize_frac(frac_str):
     if not frac_str or pd.isna(frac_str):
