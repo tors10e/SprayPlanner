@@ -1,14 +1,13 @@
 {
     "version": "0.2.0",
     "configurations": [
+    {"name":"Python Debugger: Module","type":"debugpy","request":"launch"},
         {
             "name": "Python Debugger: Current File",
             "type": "debugpy",
             "request": "launch",
-            "program": "${file}",
-            "console": "integratedTerminal",
-            "justMyCode": False,
-            "purpose": ["debug-test"]
+            "program": "${workspaceFolder}/spray_plan.py",
+            "console": "integratedTerminal"
         }
     ]
 }

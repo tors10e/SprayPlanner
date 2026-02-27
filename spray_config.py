@@ -17,31 +17,24 @@ FRAC_LIMITS = {
 FRAC_WINDOW = 3
 DEFAULT_INTERVAL = 14
 CRITICAL_STAGES = {"pre-bloom", "bloom", "fruit-set"}
-EFF_MAP = {"e": 1.0, "vg": 0.85, "g": 0.65, "f": 0.4, "": 0.0}
 HIGH_PRIORITY_THRESHOLD = 0.8
 HARVEST_DATE = datetime(2026, 9, 20)
 START_DATE = "2026-04-01"
 END_DATE = "2026-10-20"
 PHI_BUFFER_DAYS = 0   # extra safety margin if desired
 
-rating_map = {
+EFFECTIVENESS_MAP = {
     "e": 4.0,
     "vg": 3.0,
     "g": 2.0,
-    "f": 1.0
+    "f": 1.0,
+    "na": 0.0    
 }
 
+MINIMUM_SPRAY_EFFECTIVENESS = EFFECTIVENESS_MAP.get('f') # can adjust based on your tolerance for risk
 MAX_PRODUCTS_PER_SPRAY = 4
-MINIMUM_SPRAY_EFFECTIVENESS = 3  # can adjust based on your tolerance for risk
-MULTISITE_FRACS = {"M01","M02", "M03", "M04", "M05"}
+MULTISITE_FRACS = {"M", "M01", "M02", "M03", "M04", "M05"}
 FRAC_COOLDOWN = 1  # sprays before reuse allowed
-
-rating_map = {
-    "e": 4.0,
-    "vg": 3.0,
-    "g": 2.0,
-    "f": 1.0
-}
 
 stage_weights = {
     "budbreak": {"Anthracnose": 0.5, "Powdery": 0.5, "Downy": 0.5, "Phomopsis": 0.5, "Botrytis": 0.0, "Black Rot": 0.5, "Bitter Rot": 0.0},

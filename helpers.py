@@ -43,14 +43,16 @@ def covers_diseases(product_row, diseases):
     return any(effectiveness(product_row, d) > 0 for d in diseases)
 
 
+
+# Returns the effectiveness rating of a product for a given disease, based on the rating_map in spray_config.py
 def effectiveness(product_row, disease):
     val = str(product_row.get(disease, "")).lower().strip()
-    return spray_config.EFF_MAP.get(val, 0.0)
+    return spray_config.EFFECTIVENESS_MAP.get(val, 0.0)
 
 
 def is_multisite(row):
     fracs = normalize_frac(row["FRAC"])
-    return any(f.upper().startswith("M") for f in fracs)
+    return any(f.upper() in spray_config.MULTISITE_FRACS for f in fracs)
 
 def normalize_frac(frac_str):
     if not frac_str or pd.isna(frac_str):
@@ -76,14 +78,6 @@ def is_low_risk(frac):
     return str(frac).lower().startswith("m")
 
 
-def effectiveness(row, disease):
-    if disease not in row:
-        return 0
-    try:
-        return float(row[disease])
-    except:
-        return 0
-
 def determine_stage(date):
     m = date.month
     if m <= 4: return "budbreak"
@@ -99,13 +93,13 @@ def determine_stage(date):
 # Disease weights by stage
 # -----------------------------
 
-def effectiveness(row, disease):
-    if disease not in row:
-        return 0.0
+# def effectiveness(row, disease):
+#     if disease not in row:
+#         return 0.0
 
-    val = str(row[disease]).strip().lower()
+#     val = str(row[disease]).strip().lower()
 
-    return spray_config.rating_map.get(val, 0.0)
+#     return spray_config.rating_map.get(val, 0.0)
 
 
 # Get multsite backbone products
@@ -149,3 +143,34 @@ def violates_max_applications(mix, product_usage):
             return True
 
     return False
+
+
+# for each product in the mix, check if it has effectiveness greater than the minimum required for each disease in the target diseases. If so, add it to the covered set. If the product is not multisite, also add it to the active_covered set.
+           
+def get_covered_diseases(mix, target_diseases):
+    covered = set()
+    active_covered = set()
+
+    for _, row in mix.iterrows():
+        # for each disease in the target diseases, check if the product has effectiveness greater than the minimum required. If so, add it to the covered set. If the product is not multisite, also add it to the active_covered set.
+        for d in target_diseases:
+            if effectiveness(row, d) > spray_config.MINIMUM_SPRAY_EFFECTIVENESS:
+                covered.add(d)
+                if not is_multisite(row):
+                    active_covered.add(d)
+    return covered, active_covered
+
+
+def get_target_diseases(stage, stage_weights):
+    target_diseases = [d for d, w in stage_weights.items() if w > 0]
+    if not target_diseases:
+        return None
+    return target_diseases
+
+
+def has_activity(row, disease):
+    if disease not in row:
+        return False
+
+    val = str(row[disease]).strip().lower()
+    return spray_config.rating_map.get(val, 0.0) > spray_config.MINIMUM_SPRAY_EFFECTIVENESS

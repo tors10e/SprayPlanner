@@ -1,19 +1,10 @@
    #----------------- marginal gain approach for mix building -----------------------#
+from logging import critical
+
 import helpers
 import itertools
 import spray_config
 import critcal_period 
-
-#---------------- cost optimal coverage by stage-----------------------#
-
-
-
-def has_activity(row, disease):
-    if disease not in row:
-        return False
-
-    val = str(row[disease]).strip().lower()
-    return spray_config.rating_map.get(val, 0.0) > spray_config.MINIMUM_SPRAY_EFFECTIVENESS
 
 
 
@@ -26,37 +17,43 @@ def build_cost_optimal_mix(
     spray_date,
     product_usage
 ):
+    
+    # Filter out diseases that have no weight for the current stage, as they are not relevant for this spray.
+    target_diseases = helpers.get_target_diseases(stage, stage_weights)
 
-    target_diseases = [d for d, w in stage_weights.items() if w > 0]
-    if not target_diseases:
-        return None
-
-    # Determin if current stage is a critical period  
-    critical = stage in spray_config.CRITICAL_STAGES
-
-    # Filter candidates that have any activity against target diseases and are allowed by PHI based on if its a crtical period or not. During critical periods, we will be more strict about PHI and prioritize products that are allowed by PHI for the spray date.
-    candidates = critcal_period.get_candidates(critical, materials, target_diseases, spray_date)
-
+    # Get high  priority diseases for the current stage, based on the stage weights and the HIGH_PRIORITY_THRESHOLD defined in spray_config.py
     high_priority = {
         d for d in target_diseases
         if stage_weights[d] >= spray_config.HIGH_PRIORITY_THRESHOLD
     }
 
+    # Determine if current stage is a critical period  
+    is_stage_critical = stage in spray_config.CRITICAL_STAGES
+
+    # Filter candidates that have any activity against target diseases and are allowed by PHI based on if its a crtical period or not. During critical periods, we will be more strict about PHI and prioritize products that are allowed by PHI for the spray date.
+    candidates = critcal_period.get_candidates(is_stage_critical, materials, target_diseases, spray_date)
+
+
+
     # -------------------------------------------------------
     # Try increasingly relaxed constraints
     # -------------------------------------------------------
 
-    for allowed_products in range(1, spray_config.MAX_PRODUCTS_PER_SPRAY + 3):
+    # Iterate through allowed number of products in the mix, starting from 1 up to MAX_PRODUCTS_PER_SPRAY
+    for product_number in range(1, spray_config.MAX_PRODUCTS_PER_SPRAY):
 
-        for combo in itertools.combinations(candidates.index, allowed_products):
+        # Generate all combinations of candidates with the current allowed number of products sorted by
+        # least expensive (Cost/Dose) first. This ensures that we are always considering the cheapest options first.
+        for product_id in itertools.combinations(candidates.sort_values("Cost/Dose").index, product_number):
 
-            mix = candidates.loc[list(combo)]
+            # Get a list of products in the current combination
+            mix = candidates.loc[list(product_id)]
 
             multisite_flags = [helpers.is_multisite(r) for _, r in mix.iterrows()]
             has_multisite = any(multisite_flags)
             has_active = any(not m for m in multisite_flags)
 
-            # Multisite required always
+            # # Multisite required always
             if not has_multisite:
                 continue
 
@@ -70,16 +67,7 @@ def build_cost_optimal_mix(
             # Disease coverage
             # ------------------------------------------------
 
-            covered = set()
-            active_covered = set()
-
-            for _, row in mix.iterrows():
-                for d in target_diseases:
-                    if helpers.effectiveness(row, d) > 0:
-                        covered.add(d)
-                        if not helpers.is_multisite(row):
-                            active_covered.add(d)
-
+            covered, active_covered = helpers.get_covered_diseases(mix, target_diseases)
             if covered != set(target_diseases):
                 continue
 
@@ -88,36 +76,33 @@ def build_cost_optimal_mix(
             # (but don't require all)
             # ------------------------------------------------
 
-            if critical and high_priority:
-                coverage_ratio = (
-                    len(high_priority & active_covered) /
-                    len(high_priority)
-                )
+            # if critical and high_priority:
+            #     coverage_ratio = (
+            #         len(high_priority & active_covered) /
+            #         len(high_priority)
+            #     )
 
-                if coverage_ratio <= 0.5:
-                    continue
+            #     if coverage_ratio <= 0.5:
+            #         continue
 
             # ------------------------------------------------
             # FRAC rotation (soft constraint)
             # ------------------------------------------------
 
-            all_fracs = []
-            for _, row in mix.iterrows():
-                all_fracs += helpers.normalize_frac(row["FRAC"])
+            # all_fracs = []
+            # for _, row in mix.iterrows():
+            #     all_fracs += helpers.normalize_frac(row["FRAC"])
 
-            if helpers.violates_rotation(all_fracs, frac_history):
-                # Skip only if we still have room to search
-                if allowed_products <= spray_config.MAX_PRODUCTS_PER_SPRAY:
-                    continue
+            # if helpers.violates_rotation(all_fracs, frac_history):
+            #     # Skip only if we still have room to search
+            #     if product_number <= spray_config.MAX_PRODUCTS_PER_SPRAY:
+            #         continue
 
 
-            if helpers.violates_max_applications(mix, product_usage):
-                continue
-            # ------------------------------------------------
-            # Choose lowest cost
-            # ------------------------------------------------
+            # if helpers.violates_max_applications(mix, product_usage):
+            #     continue
 
-            return mix.sort_values("Cost/Dose")
+            return mix
 
     return None
 
