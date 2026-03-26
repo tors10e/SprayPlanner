@@ -33,17 +33,18 @@ class Config:
             "na": 0.0    
         }
 
-        self.minimum_spray_effectiveness = self.effectiveness_map.get('f')
+        self.minimum_spray_effectiveness = self.effectiveness_map.get('f') # can adjust based on your tolerance for risk
         self.max_products_per_spray = 4
         self.multisite_fracs = {"M", "M01", "M02", "M03", "M04", "M05"}
         self.frac_cooldown = 1
+
 
         self.stage_weights = {
             "budbreak": {"Anthracnose": 0.5, "Powdery": 0.5, "Downy": 0.5, "Phomopsis": 0.5, "Botrytis": 0.0, "Black Rot": 0.5, "Bitter Rot": 0.0},
             "pre-bloom": {"Anthracnose": 1.0, "Powdery": 1.0, "Downy": 1.0, "Phomopsis": 1.0, "Botrytis": 0.5, "Black Rot": 1.0, "Bitter Rot": 0.5},
             "bloom": {"Anthracnose": 0.5, "Powdery": 1.0, "Downy": 1.0, "Phomopsis": 0.8, "Botrytis": 0.5, "Black Rot": 1.0, "Bitter Rot": 0.5},
-            "fruit-set": {"Anthracnose": 0.0, "Powdery": 1.0, "Downy": 1.0, "Phomopsis": 0.5, "Botrytis": 0.5, "Black Rot": 0.8, "Bitter Rot": 0.8},
+            "fruit-set": {"Powdery": 0.5, "Downy": 0.5, "Botrytis": 0.3},
             "veraison": {"Anthracnose": 0.0, "Powdery": 1.0, "Downy": 0.8, "Phomopsis": 0.0, "Botrytis": 0.8, "Black Rot": 0.0, "Bitter Rot": 1.0},
             "pre-harvest": {"Anthracnose": 0.0, "Powdery": 0.8, "Downy": 0.5, "Phomopsis": 0.0, "Botrytis": 1.0, "Black Rot": 0.0, "Bitter Rot": 0.8},
-            "post-harvest": {"Anthracnose": 0.0, "Powdery": 0.0, "Downy": 0.5, "Phomopsis": 0.0, "Botrytis": 0.8, "Black Rot": 0.0, "Bitter Rot": 0.5},
+            "post-harvest": {"Downy": 0.3, "Botrytis": 0.3},
         }

@@ -41,19 +41,7 @@ class MixBuilder:
         # Try combinations of increasing size
         for size in range(1, self.config.max_products_per_spray + 1):
             for product_combo in itertools.combinations(candidates, size):
-                # We need to check if the combination itself is valid (e.g., same-spray constraints)
-                valid_combo = True
-                temp_mix = SprayMix([])
-                for p in product_combo:
-                    if not all(c.is_satisfied(p, event, history, temp_mix) for c in self.constraints):
-                        valid_combo = False
-                        break
-                    temp_mix.products.append(p)
-                
-                if not valid_combo:
-                    continue
-
-                mix = temp_mix
+                mix = SprayMix(list(product_combo))
 
                 # Rule: Must have a multisite backbone
                 if not mix.has_multisite():

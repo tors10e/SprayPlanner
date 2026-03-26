@@ -7,6 +7,7 @@ from SprayPlanner.constraints.phi_constraint import PHIConstraint
 from SprayPlanner.constraints.frac_rotation_constraint import FRACRotationConstraint
 from SprayPlanner.constraints.max_application_constraint import MaxApplicationConstraint
 from SprayPlanner.constraints.oil_sulfur_constraint import OilSulfurConstraint
+from SprayPlanner.constraints.multi_year_rotation_constraint import MultiYearRotationConstraint
 from SprayPlanner.models.spray_mix import SprayMix
 
 def test_phi_constraint():
@@ -82,3 +83,49 @@ def test_oil_sulfur_constraint():
     # OK: Non-conflicting
     other = Product("Captan", ["M04"], 10.0, 0, 99, {}, True)
     assert constraint.is_satisfied(other, event, {"last_products": ["Sulfur"]}) is True
+
+def test_multi_year_rotation_constraint():
+    constraint = MultiYearRotationConstraint()
+    p_active = Product("Active", ["1"], 10.0, 0, 99, {}, False)
+    p_multi = Product("Multi", ["M"], 5.0, 0, 99, {}, True)
+    
+    # Event in 2027, critical stage
+    stage = GrowthStage("bloom", {"D": 1.0}, True)
+    event_2027 = SprayEvent(datetime(2027, 6, 1), stage)
+    
+    # OK: No multi-year history
+    assert constraint.is_satisfied(p_active, event_2027, {"multi_year_history": {}}) is True
+    
+    # FAIL: Used in SAME stage in 2026
+    history = {
+        "multi_year_history": {
+            2026: {"bloom": ["Active"]}
+        }
+    }
+    assert constraint.is_satisfied(p_active, event_2027, history) is False
+    
+    # OK: Used in DIFFERENT stage in 2026
+    history = {
+        "multi_year_history": {
+            2026: {"budbreak": ["Active"]}
+        }
+    }
+    assert constraint.is_satisfied(p_active, event_2027, history) is True
+    
+    # OK: Multisite is exempt
+    history = {
+        "multi_year_history": {
+            2026: {"bloom": ["Multi"]}
+        }
+    }
+    assert constraint.is_satisfied(p_multi, event_2027, history) is True
+    
+    # OK: Not critical stage
+    non_critical_stage = GrowthStage("budbreak", {"D": 1.0}, False)
+    event_non_crit = SprayEvent(datetime(2027, 4, 1), non_critical_stage)
+    history = {
+        "multi_year_history": {
+            2026: {"budbreak": ["Active"]}
+        }
+    }
+    assert constraint.is_satisfied(p_active, event_non_crit, history) is True

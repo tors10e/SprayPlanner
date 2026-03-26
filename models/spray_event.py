@@ -5,6 +5,7 @@ class SprayEvent:
     def __init__(self, date: datetime, growth_stage: GrowthStage):
         self.date = date
         self.growth_stage = growth_stage
+        self.year = date.year
 
     @property
     def is_critical(self) -> bool:

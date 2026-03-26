@@ -10,13 +10,24 @@ class Planner:
         self.config = config
         self.mix_builder = mix_builder
 
-    def optimize_season(self, schedule: List[SprayEvent], products: List[Product]) -> List[Dict]:
-        history = {
-            "recent_fracs": [],
-            "frac_counts": {},
-            "product_usage": {},
-            "last_products": []
-        }
+    def optimize_season(self, schedule: List[SprayEvent], products: List[Product], initial_history: Optional[Dict] = None) -> List[Dict]:
+        if initial_history is not None:
+            history = initial_history
+            # Reset seasonal history for the new year
+            history["recent_fracs"] = []
+            history["frac_counts"] = {}
+            history["product_usage"] = {}
+            history["last_products"] = []
+            # Ensure multi_year_history exists
+            if "multi_year_history" not in history: history["multi_year_history"] = {}
+        else:
+            history = {
+                "recent_fracs": [],
+                "frac_counts": {},
+                "product_usage": {},
+                "last_products": [],
+                "multi_year_history": {}
+            }
         
         season_plan = []
 
@@ -32,7 +43,7 @@ class Planner:
                 continue
 
             # Update history
-            self._update_history(mix, history)
+            self._update_history(mix, history, event)
 
             season_plan.append({
                 "date": event.date.strftime("%Y-%m-%d"),
@@ -45,10 +56,23 @@ class Planner:
 
         return season_plan
 
-    def _update_history(self, mix: SprayMix, history: Dict):
+    def _update_history(self, mix: SprayMix, history: Dict, event: Optional[SprayEvent] = None):
         # Update product usage counts
         for p in mix.products:
             history["product_usage"][p.name] = history["product_usage"].get(p.name, 0) + 1
+
+        # Update multi-year history if critical
+        if event and event.is_critical:
+            year = event.year
+            stage = event.growth_stage.name
+            if year not in history["multi_year_history"]:
+                history["multi_year_history"][year] = {}
+            if stage not in history["multi_year_history"][year]:
+                history["multi_year_history"][year][stage] = []
+            
+            for p in mix.products:
+                if not p.is_multisite():
+                    history["multi_year_history"][year][stage].append(p.name)
 
         # Update FRAC history
         new_fracs = mix.get_frac_codes()
