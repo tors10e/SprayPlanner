@@ -21,18 +21,17 @@ def build_cost_optimal_mix(
     # Filter out diseases that have no weight for the current stage, as they are not relevant for this spray.
     target_diseases = helpers.get_target_diseases(stage, stage_weights)
 
+    # Determine if current stage is a critical period  
+    is_stage_critical = stage in spray_config.CRITICAL_STAGES
+    
     # Get high  priority diseases for the current stage, based on the stage weights and the HIGH_PRIORITY_THRESHOLD defined in spray_config.py
     high_priority = {
         d for d in target_diseases
         if stage_weights[d] >= spray_config.HIGH_PRIORITY_THRESHOLD
     }
 
-    # Determine if current stage is a critical period  
-    is_stage_critical = stage in spray_config.CRITICAL_STAGES
-
     # Filter candidates that have any activity against target diseases and are allowed by PHI based on if its a crtical period or not. During critical periods, we will be more strict about PHI and prioritize products that are allowed by PHI for the spray date.
     candidates = critcal_period.get_candidates(is_stage_critical, materials, target_diseases, spray_date)
-
 
 
     # -------------------------------------------------------
@@ -40,6 +39,10 @@ def build_cost_optimal_mix(
     # -------------------------------------------------------
 
     # Iterate through allowed number of products in the mix, starting from 1 up to MAX_PRODUCTS_PER_SPRAY
+    # This creats a combination of all spray products in groups based on the max sprays variable. 
+    # something like [33,1,4,33]
+
+    #todo: I thinkn this just limits things to the first 4 chemicals in the list, but we want to consider all combinations of chemicals up to the max allowed.
     for product_number in range(1, spray_config.MAX_PRODUCTS_PER_SPRAY):
 
         # Generate all combinations of candidates with the current allowed number of products sorted by
