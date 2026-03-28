@@ -9,7 +9,13 @@ class Product:
         phi: int,
         max_applications: int,
         effectiveness: Dict[str, float],
-        is_multisite: bool
+        is_multisite: bool,
+        primary_disease: str = "",
+        omri: str = "",
+        units: str = "",
+        price: float = 0.0,
+        dose_avg: float = 0.0,
+        container_size: float = 0.0
     ):
         self.name = name
         self.frac_codes = frac_codes
@@ -18,6 +24,12 @@ class Product:
         self.max_applications = max_applications
         self.effectiveness = effectiveness
         self._is_multisite = is_multisite
+        self.primary_disease = primary_disease
+        self.omri = omri
+        self.units = units
+        self.price = price
+        self.dose_avg = dose_avg
+        self.container_size = container_size
 
     def is_multisite(self) -> bool:
         return self._is_multisite

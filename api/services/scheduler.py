@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta
 from typing import List
-from SprayPlanner.core.config import Config
-from SprayPlanner.models.growth_stage import GrowthStage
-from SprayPlanner.models.spray_event import SprayEvent
+from core.config import Config
+from models.growth_stage import GrowthStage
+from models.spray_event import SprayEvent
 
 class Scheduler:
     def __init__(self, config: Config):

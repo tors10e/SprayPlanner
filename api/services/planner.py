@@ -1,9 +1,10 @@
 from typing import List, Dict, Optional
-from SprayPlanner.core.config import Config
-from SprayPlanner.models.product import Product
-from SprayPlanner.models.spray_event import SprayEvent
-from SprayPlanner.models.spray_mix import SprayMix
-from SprayPlanner.services.mix_builder import MixBuilder
+from core.config import Config
+from models.product import Product
+from models.spray_event import SprayEvent
+from models.growth_stage import GrowthStage
+from services.mix_builder import MixBuilder
+from models.spray_mix import SprayMix # Added import
 
 class Planner:
     def __init__(self, config: Config, mix_builder: MixBuilder):
@@ -15,6 +16,7 @@ class Planner:
             history = initial_history
             # Reset seasonal history for the new year
             history["recent_fracs"] = []
+            history["recent_fracs_window"] = []
             history["frac_counts"] = {}
             history["product_usage"] = {}
             history["last_products"] = []
@@ -23,6 +25,7 @@ class Planner:
         else:
             history = {
                 "recent_fracs": [],
+                "recent_fracs_window": [],
                 "frac_counts": {},
                 "product_usage": {},
                 "last_products": [],
@@ -32,7 +35,7 @@ class Planner:
         season_plan = []
 
         for event in schedule:
-            mix = self.mix_builder.build_cost_optimal_mix(products, event, history)
+            mix = self.mix_builder.build_cost_optimal_mix(products, event, history) # Removed organic_mode
 
             if mix is None:
                 season_plan.append({
@@ -40,12 +43,12 @@ class Planner:
                     "stage": event.growth_stage.name,
                     "mix": "NO VALID MIX"
                 })
-                continue
+                continue # Correctly indented under 'if'
 
             # Update history
-            self._update_history(mix, history, event)
+            self._update_history(mix, history, event) 
 
-            season_plan.append({
+            season_plan.append({ # Correctly indented under 'for' loop
                 "date": event.date.strftime("%Y-%m-%d"),
                 "stage": event.growth_stage.name,
                 "products": [p.name for p in mix.products],
@@ -71,19 +74,27 @@ class Planner:
                 history["multi_year_history"][year][stage] = []
             
             for p in mix.products:
-                if not p.is_multisite():
+                if not p.is_multisite(): # Only non-multisite products count for rotation
                     history["multi_year_history"][year][stage].append(p.name)
 
         # Update FRAC history
-        new_fracs = mix.get_frac_codes()
+        new_fracs = [f for f in mix.get_frac_codes() if f.upper() not in self.config.multisite_fracs]
         for f in new_fracs:
-            if f.upper() in self.config.multisite_fracs:
-                continue
             history["frac_counts"][f] = history["frac_counts"].get(f, 0) + 1
+        
+        # Maintain a sliding window of recent FRACs based on frac_cooldown
+        # history["recent_fracs"] will be a list of sets/lists, one for each recent spray
+        if "recent_fracs_window" not in history:
+            history["recent_fracs_window"] = []
+        
+        history["recent_fracs_window"].append(new_fracs)
+        
+        # Keep only the last 'frac_cooldown' sprays in the window
+        if len(history["recent_fracs_window"]) > self.config.frac_cooldown:
+            history["recent_fracs_window"].pop(0)
+            
+        # Flatten the window for the constraint to check easily
+        history["recent_fracs"] = [f for spray in history["recent_fracs_window"] for f in spray]
         
         # Store last spray products
         history["last_products"] = [p.name for p in mix.products]
-
-        # In a real app, recent_fracs might track the last few sprays
-        # For this refactor, we'll keep it simple and just store the last spray's non-multisite FRACs
-        history["recent_fracs"] = [f for f in new_fracs if f.upper() not in self.config.multisite_fracs]

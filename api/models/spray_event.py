@@ -1,5 +1,5 @@
 from datetime import datetime
-from SprayPlanner.models.growth_stage import GrowthStage
+from models.growth_stage import GrowthStage
 
 class SprayEvent:
     def __init__(self, date: datetime, growth_stage: GrowthStage):

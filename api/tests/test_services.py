@@ -1,12 +1,12 @@
 from datetime import datetime
-from SprayPlanner.core.config import Config
-from SprayPlanner.services.scheduler import Scheduler
-from SprayPlanner.services.mix_builder import MixBuilder
-from SprayPlanner.services.planner import Planner
-from SprayPlanner.models.product import Product
-from SprayPlanner.models.spray_event import SprayEvent
-from SprayPlanner.models.growth_stage import GrowthStage
-from SprayPlanner.constraints.phi_constraint import PHIConstraint
+from core.config import Config
+from services.scheduler import Scheduler
+from services.mix_builder import MixBuilder
+from services.planner import Planner
+from models.product import Product
+from models.spray_event import SprayEvent
+from models.growth_stage import GrowthStage
+from constraints.phi_constraint import PHIConstraint
 
 def test_scheduler_builds_correct_number_of_events():
     config = Config()
@@ -56,7 +56,7 @@ def test_planner_updates_history():
     
     class MockBuilder:
         def build_cost_optimal_mix(self, products, event, history):
-            from SprayPlanner.models.spray_mix import SprayMix
+            from models.spray_mix import SprayMix
             return SprayMix([p1, p2])
             
     planner = Planner(config, MockBuilder())

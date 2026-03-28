@@ -1,5 +1,5 @@
 from typing import List, Set
-from SprayPlanner.models.product import Product
+from models.product import Product
 
 class SprayMix:
     def __init__(self, products: List[Product]):

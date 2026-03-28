@@ -1,5 +1,5 @@
-from SprayPlanner.core.config import Config
-from SprayPlanner.core.repository import ProductRepository
+from core.config import Config
+from core.repository import ProductRepository
 import pandas as pd
 
 config = Config()

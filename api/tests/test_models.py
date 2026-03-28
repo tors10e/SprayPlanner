@@ -1,6 +1,6 @@
-from SprayPlanner.models.product import Product
-from SprayPlanner.models.growth_stage import GrowthStage
-from SprayPlanner.models.spray_mix import SprayMix
+from models.product import Product
+from models.growth_stage import GrowthStage
+from models.spray_mix import SprayMix
 
 def test_product_effectiveness():
     effectiveness = {"Downy": 3.0, "Powdery": 2.0}

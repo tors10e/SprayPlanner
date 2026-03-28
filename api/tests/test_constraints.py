@@ -1,14 +1,13 @@
 from datetime import datetime
-from SprayPlanner.models.product import Product
-from SprayPlanner.models.spray_event import SprayEvent
-from SprayPlanner.models.growth_stage import GrowthStage
-from SprayPlanner.core.config import Config
-from SprayPlanner.constraints.phi_constraint import PHIConstraint
-from SprayPlanner.constraints.frac_rotation_constraint import FRACRotationConstraint
-from SprayPlanner.constraints.max_application_constraint import MaxApplicationConstraint
-from SprayPlanner.constraints.oil_sulfur_constraint import OilSulfurConstraint
-from SprayPlanner.constraints.multi_year_rotation_constraint import MultiYearRotationConstraint
-from SprayPlanner.models.spray_mix import SprayMix
+from models.product import Product
+from models.spray_event import SprayEvent
+from models.growth_stage import GrowthStage
+from core.config import Config
+from constraints.phi_constraint import PHIConstraint
+from constraints.frac_rotation_constraint import FRACRotationConstraint
+from constraints.max_application_constraint import MaxApplicationConstraint
+from constraints.oil_sulfur_constraint import OilSulfurConstraint
+from constraints.multi_year_rotation_constraint import MultiYearRotationConstraint
 
 def test_phi_constraint():
     config = Config()

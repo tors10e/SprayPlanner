@@ -1,10 +1,14 @@
+import os
 from datetime import datetime
 from typing import Dict, Set
 
 class Config:
     def __init__(self):
-        self.excel_file = "SprayPlanner/spray_product_information.csv"
-        self.database_file = "SprayPlanner/core/database.db"
+        # Get the directory of the current file (SprayPlanner/api/core)
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        
+        self.excel_file = os.path.join(base_dir, "spray_product_information.csv")
+        self.database_file = os.path.join(base_dir, "core/database.db")
         self.total_acres = 4
         self.sulfur_sensitive_acres = 0
         self.normal_acres = self.total_acres - self.sulfur_sensitive_acres
@@ -36,7 +40,7 @@ class Config:
         self.minimum_spray_effectiveness = self.effectiveness_map.get('f') # can adjust based on your tolerance for risk
         self.max_products_per_spray = 4
         self.multisite_fracs = {"M", "M01", "M02", "M03", "M04", "M05"}
-        self.frac_cooldown = 1
+        self.frac_cooldown = 2
 
 
         self.stage_weights = {

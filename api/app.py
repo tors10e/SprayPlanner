@@ -1,15 +1,15 @@
 import pandas as pd
 from datetime import datetime
-from SprayPlanner.core.config import Config
-from SprayPlanner.core.repository import ProductRepository
-from SprayPlanner.services.scheduler import Scheduler
-from SprayPlanner.services.mix_builder import MixBuilder
-from SprayPlanner.services.planner import Planner
-from SprayPlanner.constraints.phi_constraint import PHIConstraint
-from SprayPlanner.constraints.frac_rotation_constraint import FRACRotationConstraint
-from SprayPlanner.constraints.max_application_constraint import MaxApplicationConstraint
-from SprayPlanner.constraints.oil_sulfur_constraint import OilSulfurConstraint
-from SprayPlanner.constraints.multi_year_rotation_constraint import MultiYearRotationConstraint
+from core.config import Config
+from core.repository import ProductRepository
+from services.scheduler import Scheduler
+from services.mix_builder import MixBuilder
+from services.planner import Planner
+from constraints.phi_constraint import PHIConstraint
+from constraints.frac_rotation_constraint import FRACRotationConstraint
+from constraints.max_application_constraint import MaxApplicationConstraint
+from constraints.oil_sulfur_constraint import OilSulfurConstraint
+from constraints.multi_year_rotation_constraint import MultiYearRotationConstraint
 
 def main():
     # 1. Initialize configuration
@@ -19,8 +19,11 @@ def main():
     repo = ProductRepository(config)
     products = repo.load_products()
 
-    # 3. Set up constraints
-    # We will instantiate MultiYearRotationConstraint here so it can be used across years
+    # 3. Build schedule
+    scheduler = Scheduler(config)
+    schedule = scheduler.build_schedule()
+
+    # 4. Set up constraints
     constraints = [
         PHIConstraint(config),
         FRACRotationConstraint(config),
@@ -29,11 +32,12 @@ def main():
         MultiYearRotationConstraint()
     ]
 
-    # 4. Initialize services
+    # 5. Initialize services
+    # MixBuilder and Planner are initialized without organic_mode
     mix_builder = MixBuilder(config, constraints)
     planner = Planner(config, mix_builder)
 
-    # 5. Run 3-year optimization
+    # 6. Run 3-year optimization
     multi_year_plan = {}
     history = {
         "multi_year_history": {}
@@ -41,7 +45,7 @@ def main():
 
     years = [2026, 2027, 2028]
     for year in years:
-        print(f"\n--- Generating Plan for {year} ---")
+        print(f"--- Generating Plan for {year} ---")
         
         # Adjust config for the current year
         config.start_date = f"{year}-04-01"
@@ -53,11 +57,6 @@ def main():
         schedule = scheduler.build_schedule()
 
         # Optimize season (passing existing history)
-        # Note: we need to modify planner to take history as an optional argument or keep it persistent
-        # For now, we'll manually manage history in main() and pass it if we refactor planner further,
-        # OR we just let the planner update the 'history' dict we pass in.
-        
-        # Actually, let's modify Planner.optimize_season to accept initial history
         plan = planner.optimize_season(schedule, products, initial_history=history)
         multi_year_plan[year] = plan
         

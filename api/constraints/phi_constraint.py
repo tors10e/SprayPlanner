@@ -1,10 +1,10 @@
 from datetime import datetime
 from typing import Dict
-from SprayPlanner.constraints.base_constraint import BaseConstraint
-from SprayPlanner.models.product import Product
-from SprayPlanner.models.spray_event import SprayEvent
-from SprayPlanner.models.spray_mix import SprayMix
-from SprayPlanner.core.config import Config
+from constraints.base_constraint import BaseConstraint
+from models.product import Product
+from models.spray_event import SprayEvent
+from models.spray_mix import SprayMix
+from core.config import Config
 
 class PHIConstraint(BaseConstraint):
     def __init__(self, config: Config):

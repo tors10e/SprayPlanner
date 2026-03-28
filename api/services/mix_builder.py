@@ -1,15 +1,16 @@
 import itertools
 from typing import List, Dict, Set, Optional
-from SprayPlanner.models.product import Product
-from SprayPlanner.models.spray_event import SprayEvent
-from SprayPlanner.models.spray_mix import SprayMix
-from SprayPlanner.core.config import Config
-from SprayPlanner.constraints.base_constraint import BaseConstraint
+from models.product import Product
+from models.spray_event import SprayEvent
+from models.growth_stage import GrowthStage
+from core.config import Config
+from constraints.base_constraint import BaseConstraint
+from models.spray_mix import SprayMix # Ensure this import is correct
 
 class MixBuilder:
     def __init__(self, config: Config, constraints: List[BaseConstraint]):
         self.config = config
-        self.constraints = constraints
+        self.constraints = list(constraints) # Create a mutable copy
 
     def build_cost_optimal_mix(
         self,
@@ -41,7 +42,7 @@ class MixBuilder:
         # Try combinations of increasing size
         for size in range(1, self.config.max_products_per_spray + 1):
             for product_combo in itertools.combinations(candidates, size):
-                mix = SprayMix(list(product_combo))
+                mix = SprayMix(list(product_combo)) # SprayMix should be defined now
 
                 # Rule: Must have a multisite backbone
                 if not mix.has_multisite():
