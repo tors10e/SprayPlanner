@@ -35,7 +35,17 @@ def add_product():
     if 'effectiveness' in data:
         eff = data.pop('effectiveness')
         data.update(eff)
-    repo.add_product(data)
+    
+    # Filter only keys that exist in the database
+    valid_keys = [
+        "Product", "Primary Disease", "FRAC", "omri", "phi", 
+        "Max Applications", "Container Size", "units", "Price", 
+        "Dose (avg)", "Cost/Dose", "Anthracnose", "Black Rot", 
+        "Bitter Rot", "Botrytis", "Downy", "Phomopsis", "Powdery"
+    ]
+    filtered_data = {k: v for k, v in data.items() if k in valid_keys}
+    
+    repo.add_product(filtered_data)
     return jsonify({'status': 'success'})
 
 @app.route('/api/products/<name>', methods=['PUT'])
@@ -44,7 +54,16 @@ def update_product(name):
     if 'effectiveness' in data:
         eff = data.pop('effectiveness')
         data.update(eff)
-    repo.update_product(name, data)
+
+    valid_keys = [
+        "Product", "Primary Disease", "FRAC", "omri", "phi", 
+        "Max Applications", "Container Size", "units", "Price", 
+        "Dose (avg)", "Cost/Dose", "Anthracnose", "Black Rot", 
+        "Bitter Rot", "Botrytis", "Downy", "Phomopsis", "Powdery"
+    ]
+    filtered_data = {k: v for k, v in data.items() if k in valid_keys}
+    
+    repo.update_product(name, filtered_data)
     return jsonify({'status': 'success'})
 
 @app.route('/api/products/<name>', methods=['DELETE'])
