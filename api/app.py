@@ -19,6 +19,17 @@ def main():
     repo = ProductRepository(config)
     products = repo.load_products()
 
+    # Prompt for organic mode
+    organic_response = input("Do you want to generate an organic-only spray plan? (yes/no): ").lower().strip()
+    if organic_response == 'yes' or organic_response == 'y':
+        print("Organic mode enabled. Filtering for OMRI-listed products...")
+        # Database stores OMRI as 1 for Yes, 0 for No
+        products = [p for p in products if str(p.omri) == '1']
+    elif organic_response == 'no' or organic_response == 'n':
+        pass
+    else:
+        print("Invalid input. Proceeding with all products.")
+
     # 3. Build schedule
     scheduler = Scheduler(config)
     schedule = scheduler.build_schedule()
@@ -61,7 +72,17 @@ def main():
         multi_year_plan[year] = plan
         
         plan_df = pd.DataFrame(plan)
-        print(plan_df[["date", "stage", "products", "FRACs", "Total Cost"]])
+        
+        # Check if we have a valid plan (at least one row with 'products')
+        if "products" in plan_df.columns:
+            # For display purposes, fill NaN values for rows with 'NO VALID MIX'
+            cols_to_show = ["date", "stage", "products", "FRACs", "Total Cost"]
+            # Ensure all columns exist before printing
+            existing_cols = [c for c in cols_to_show if c in plan_df.columns]
+            print(plan_df[existing_cols])
+        else:
+            print("No valid mixes found for any events this year.")
+            print(plan_df[["date", "stage", "mix"]])
 
 if __name__ == "__main__":
     main()
