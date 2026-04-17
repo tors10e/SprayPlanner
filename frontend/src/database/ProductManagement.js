@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Container, Table, Button, Modal, Form, Row, Col } from 'react-bootstrap';
 import Header from "../components/header";
 import NavBar from "../components/navbar";
-import Footer from "../home/footer";
+import Footer from "../components/footer";
 import ReactGA from "react-ga4";
 
 const API_BASE = "http://localhost:5001/api/products";
