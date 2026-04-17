@@ -1,0 +1,4 @@
+Image size: 214 x 300
+dpi = 300
+bit = 24
+quality = 70% when resizing in ms photos

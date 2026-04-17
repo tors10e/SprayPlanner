@@ -1,0 +1,280 @@
+/*
+ * Globals
+ */
+
+ .footer {
+    text-align: center;
+ }
+
+ .footer-heading {
+  text-decoration: underline;
+
+ }
+
+ .footer-subheading {
+    font-weight: bold;
+ }
+
+.alert {
+    text-align: center;
+}
+
+/* Custom default button */
+.btn-secondary,
+.btn-secondary:hover,
+.btn-secondary:focus {
+  color: #333;
+  text-shadow: none; /* Prevent inheritance from `body` */
+  background-color: #fff;
+  border: .05rem solid #fff;
+}
+
+/* set the font to serif */
+body {
+  height: 100%;
+  min-height: 100vh;
+  font-family: Georgia, 'Times New Roman', Times, serif !important;
+  }
+
+.page-holder {
+  min-height: 100vh;
+}
+
+.image {
+  margin-top: 1.5rem;
+}
+
+.bg-cover {
+  background-size: cover;
+  background-attachment: fixed;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.navbar {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+#centered-grid-content {
+  margin: auto;
+}
+
+.grid-item-margin {
+  margin-bottom: 16px;
+}
+
+.cover-container {
+  max-width: 100%;
+}
+
+.section-heading {
+  margin-bottom: 58px;
+  padding-bottom: 54px;
+  /*border-bottom: .5px solid #d0d0d0;*/
+  border-top: .5px solid #d0d0d0;
+  color: #002550;
+}
+
+.list-unordered {
+  padding-top: 20px;
+  text-align: left;
+  font-size: 1.0em;
+  padding-bottom: 5px;
+  padding-top: 10px;
+}
+
+#event-group {
+  color: black;
+}
+
+/*
+ * Header
+ */
+.masthead {
+  margin-bottom: 2rem;
+}
+
+.masthead-brand {
+  margin-bottom: 0;
+}
+
+
+.nav {
+  color: #002550;
+}
+
+.cover-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.navbar-brand {
+    color:darkslategrey;
+}
+
+.nav-masthead .nav-link {
+  color: rgba(0, 0, 0, 0.5);
+  background-color: transparent;
+  border-bottom: .25rem solid transparent;
+}
+
+.nav-masthead .nav-link:hover,
+.nav-masthead .nav-link:focus {
+  border-bottom-color: rgba(0, 0, 0, .25);
+}
+
+.nav-masthead .nav-link {
+  margin-left: 1rem;
+}
+
+.nav-masthead .active {
+  /* color: grey; */
+  border-bottom-color: #002550;
+}
+
+/*
+ * Cover
+ */
+
+.checkout-link {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    width: 258.96px;
+    background: #FFFFFF;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    box-shadow: -2px 10px 5px rgba(0, 0, 0, 0);
+    border-radius: 10px;
+    font-family: SQ Market, SQ Market, Helvetica, Arial, sans-serif;
+    padding: 28px;
+    margin-top: 28px;
+    margin-bottom: 28px;
+    margin-left: 10px;
+    margin-right: 10px;
+}
+
+.checkout-p {
+    font-size: 18px;
+    line-height: 20px;
+    font-weight: 600;
+    text-align: center;
+}
+
+.checkout-a {
+    display: inline-block;
+    font-size: 18px;
+    line-height: 48px;
+    height: 48px;
+    color: #ffffff;
+    min-width: 212px;
+    background-color: #006aff;
+    text-align: center;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.1) inset;
+    border-radius: 0px;
+}
+
+.cover .btn-lg {
+  padding: .75rem 1.25rem;
+  font-weight: 700;
+}
+
+/*
+ * Body
+ */
+
+ .icon-blue {
+  color: blue;
+}
+
+.chefs-dinner-form {
+width: 50%;
+}
+
+ .topic {
+/*   margin-top: 3rem;*/
+   margin-bottom: 3rem;
+   padding-top: 1.5rem;
+   padding-bottom: 1.5rem;
+ }
+
+.card {
+    background-color: #808080;
+    text-align: left;
+    width: 20rem;
+    margin-bottom: 0.5rem;
+    margin-right:0.5rem;
+    }
+
+.text-left {
+	text-align: left;
+}
+
+.vertical-align {
+  position: relative;
+  top: 50%;
+  transform: translateY(-50%)
+};
+
+/*
+ * Footer
+ */
+.mastfoot {
+  color: rgba(255, 255, 255, .5);
+}
+
+.inline .plus-block--img-wrapper:after {
+	background-color: rgba(255, 0, 0, 1);
+	color: #fff;
+	content: '+';
+	cursor: pointer;
+	font-size: 50px;
+	font-weight: 100;
+	height: 40px;
+	line-height: 38px;
+	position: absolute;
+	right: 0;
+	text-align: center;
+	top: 0;
+	width: 40px;
+/*	box-shadow: -1px 1px 2px rgba(0,0, 0, 0.3);*/
+}
+
+.inline .plus-block--img-wrapper.lens:after {
+	content: '\e800';
+	font-family: icons;
+	font-size: 25px;
+}
+
+img {
+  max-width: 100%;
+  max-height: 100%;
+  }
+
+.heading {
+    margin-bottom: 2.0rem;
+}
+
+.justify-text-left {
+    text-align: left;
+}
+
+#banner {
+	  position: relative;
+    color: white;
+}
+
+#banner-text {
+  position: absolute;
+}
+
+.bg-image {
+  background-image: url(./images/banners/banner_1200x774.jpg);
+  min-height: 774px;
+  background-size: cover;
+  margin-bottom: 1rem;
+  margin-right: 1.5rem;
+}
