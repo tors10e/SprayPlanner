@@ -57,8 +57,9 @@ class ProductRepository:
         conn = sqlite3.connect(self.config.database_file)
         cursor = conn.cursor()
         
-        # Remap keys for placeholders (sqlite doesn't like spaces in placeholder names)
-        remapped_data = {k.replace(' ', '_'): v for k, v in product_data.items()}
+        # Remap keys for placeholders (sqlite doesn't like spaces or special chars in placeholder names)
+        # We replace spaces, parentheses, and slashes with underscores
+        remapped_data = {self._clean_key(k): v for k, v in product_data.items()}
         columns = [f"\"{k}\"" for k in product_data.keys()]
         placeholders = ":" + ", :".join(remapped_data.keys())
         sql = f"INSERT INTO products ({', '.join(columns)}) VALUES ({placeholders})"
@@ -72,16 +73,20 @@ class ProductRepository:
         cursor = conn.cursor()
         
         # Use double quotes for column names to handle spaces (e.g., "Max Applications")
-        set_clause = ", ".join([f"\"{col}\" = :{col.replace(' ', '_')}" for col in product_data.keys()])
+        set_clause = ", ".join([f"\"{col}\" = :{self._clean_key(col)}" for col in product_data.keys()])
         sql = f"UPDATE products SET {set_clause} WHERE Product = :old_name"
         
-        # Remap keys for placeholders (sqlite doesn't like spaces in placeholder names)
-        remapped_data = {k.replace(' ', '_'): v for k, v in product_data.items()}
+        # Remap keys for placeholders
+        remapped_data = {self._clean_key(k): v for k, v in product_data.items()}
         remapped_data['old_name'] = name
         
         cursor.execute(sql, remapped_data)
         conn.commit()
         conn.close()
+
+    def _clean_key(self, key: str) -> str:
+        """Cleans a key to be used as a SQLite placeholder name."""
+        return key.replace(' ', '_').replace('(', '').replace(')', '').replace('/', '_')
 
     def delete_product(self, name: str):
         conn = sqlite3.connect(self.config.database_file)
