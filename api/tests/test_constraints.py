@@ -2,6 +2,7 @@ from datetime import datetime
 from models.product import Product
 from models.spray_event import SprayEvent
 from models.growth_stage import GrowthStage
+from models.spray_mix import SprayMix
 from core.config import Config
 from constraints.phi_constraint import PHIConstraint
 from constraints.frac_rotation_constraint import FRACRotationConstraint

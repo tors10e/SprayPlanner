@@ -59,7 +59,9 @@ npm start
 ## Testing
 To run the unit tests, ensure the virtual environment is activated and execute from the project root:
 ```bash
-source SprayPlanner/sprayplan_env/bin/activate
-export PYTHONPATH=$PYTHONPATH:.
-pytest SprayPlanner/tests
+   source SprayPlanner/sprayplan_env/bin/activate
+   export PYTHONPATH=$PYTHONPATH:$(pwd)/SprayPlanner/api
+   pytest SprayPlanner/api/tests
+
+
 ```
