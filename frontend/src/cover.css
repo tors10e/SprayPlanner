@@ -270,11 +270,3 @@ img {
 #banner-text {
   position: absolute;
 }
-
-.bg-image {
-  background-image: url(./images/banners/banner_1200x774.jpg);
-  min-height: 774px;
-  background-size: cover;
-  margin-bottom: 1rem;
-  margin-right: 1.5rem;
-}
