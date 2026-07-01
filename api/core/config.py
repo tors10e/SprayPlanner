@@ -9,6 +9,19 @@ class Config:
         
         self.excel_file = os.path.join(base_dir, "spray_product_information.csv")
         self.database_file = os.path.join(base_dir, "core/database.db")
+        
+        # Database configurations
+        self.db_type = os.environ.get("DB_TYPE", "sqlite").lower()
+        self.database_url = os.environ.get("DATABASE_URL")
+        self.db_host = os.environ.get("DB_HOST", "localhost")
+        try:
+            self.db_port = int(os.environ.get("DB_PORT", 5432))
+        except ValueError:
+            self.db_port = 5432
+        self.db_name = os.environ.get("DB_NAME", "sprayplanner")
+        self.db_user = os.environ.get("DB_USER", "postgres")
+        self.db_password = os.environ.get("DB_PASSWORD", "postgres")
+
         self.total_acres = 4
         self.sulfur_sensitive_acres = 0
         self.normal_acres = self.total_acres - self.sulfur_sensitive_acres

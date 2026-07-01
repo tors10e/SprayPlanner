@@ -5,7 +5,7 @@ import NavBar from "../components/navbar";
 import Footer from "../components/footer";
 import ReactGA from "react-ga4";
 
-const API_BASE = "http://localhost:5001/api/products";
+const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5001/api/products";
 
 const ProductManagement = () => {
     ReactGA.send({ hitType: "pageview", page: "/database", title: "Product Management" });

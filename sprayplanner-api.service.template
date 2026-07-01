@@ -1,0 +1,23 @@
+# Systemd service unit template for SprayPlanner Flask API.
+# Copy this file to /etc/systemd/system/sprayplanner-api.service on your server,
+# update the paths/usernames/passwords, reload systemd, and enable/start the service.
+
+[Unit]
+Description=Gunicorn instance to serve SprayPlanner Flask API
+After=network.target
+
+[Service]
+User=YOUR_SYSTEM_USER
+WorkingDirectory=/var/www/sprayplanner/api
+Environment="PATH=/var/www/sprayplanner/sprayplan_env/bin"
+Environment="DB_TYPE=postgres"
+Environment="DB_HOST=YOUR_STANDALONE_POSTGRES_HOST"
+Environment="DB_PORT=5432"
+Environment="DB_NAME=sprayplanner"
+Environment="DB_USER=postgres"
+Environment="DB_PASSWORD=YOUR_STANDALONE_POSTGRES_PASSWORD"
+Environment="PYTHONPATH=/var/www/sprayplanner/api"
+ExecStart=/var/www/sprayplanner/sprayplan_env/bin/gunicorn --workers 4 --bind 127.0.0.1:5001 api:app
+
+[Install]
+WantedBy=multi-user.target
