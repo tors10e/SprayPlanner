@@ -139,7 +139,7 @@ const ProductManagement = () => {
     };
 
     return (
-        <Container>
+        <Container fluid className="px-0 w-100">
             <Row><Header /></Row>
             <Row className="navbar"><NavBar /></Row>
 

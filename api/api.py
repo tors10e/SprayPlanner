@@ -182,6 +182,110 @@ def upload_history():
             return jsonify({'status': 'error', 'message': str(e)}), 500
     return jsonify({'status': 'error', 'message': 'Invalid file type, only CSV allowed'}), 400
 
+@app.route('/api/history/save_group', methods=['POST'])
+def save_history_group():
+    try:
+        data = request.json
+        spray_number = data.get("spray_number")
+        block = data.get("block")
+        date = data.get("date")
+        end_time = data.get("end_time")
+        
+        original_spray_number = data.get("original_spray_number")
+        original_block = data.get("original_block")
+        original_date = data.get("original_date")
+        original_end_time = data.get("original_end_time")
+        
+        rows = data.get("rows", [])
+        
+        # Start transactional block
+        conn = history_repo._get_connection()
+        cursor = conn.cursor()
+        try:
+            # 1. Clean up old records for this specific block event
+            if original_block is not None and original_date is not None:
+                if original_spray_number is not None:
+                    cursor.execute(
+                        'DELETE FROM spray_history WHERE "Spray #" = %s AND "Block " = %s AND "Date" = %s AND "End Time" = %s', 
+                        (original_spray_number, original_block, original_date, original_end_time or "")
+                    )
+                else:
+                    cursor.execute(
+                        'DELETE FROM spray_history WHERE "Spray #" IS NULL AND "Block " = %s AND "Date" = %s AND "End Time" = %s', 
+                        (original_block, original_date, original_end_time or "")
+                    )
+            else:
+                # Delete individual edited/removed rows by IDs if applicable
+                row_ids = [r.get("id") for r in rows if r.get("id") is not None]
+                if row_ids:
+                    cursor.execute('DELETE FROM spray_history WHERE id IN %s', (tuple(row_ids),))
+            
+            # 2. Insert new/updated rows
+            for row in rows:
+                row["Spray #"] = spray_number
+                row["Block "] = block
+                row["Date"] = date
+                row["End Time"] = end_time
+                
+                # Make sure the chemical product reference exists/is upserted
+                history_repo._upsert_product_reference(cursor, row)
+                
+                # Build insertion columns and placeholders
+                remapped_data = {history_repo._clean_key(k): history_repo._normalize_val(v) for k, v in row.items() if k in history_repo.columns}
+                for col in history_repo.columns:
+                    cleaned = history_repo._clean_key(col)
+                    if cleaned not in remapped_data:
+                        remapped_data[cleaned] = None
+                        
+                columns_sql = ", ".join([f'"{c}"' for c in history_repo.columns])
+                placeholders_sql = ", ".join([f"%({history_repo._clean_key(c)})s" for c in history_repo.columns])
+                sql = f"INSERT INTO spray_history ({columns_sql}) VALUES ({placeholders_sql})"
+                
+                cursor.execute(sql, remapped_data)
+                
+            conn.commit()
+            return jsonify({'status': 'success'})
+        except Exception as ex:
+            conn.rollback()
+            raise ex
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        print(f"Error saving history group: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/history/delete_event', methods=['POST'])
+def delete_history_event():
+    try:
+        data = request.json
+        spray_number = data.get("spray_number")
+        block = data.get("block")
+        date = data.get("date")
+        end_time = data.get("end_time")
+        
+        conn = history_repo._get_connection()
+        cursor = conn.cursor()
+        
+        if spray_number is not None:
+            cursor.execute(
+                'DELETE FROM spray_history WHERE "Spray #" = %s AND "Block " = %s AND "Date" = %s AND "End Time" = %s',
+                (spray_number, block, date, end_time or "")
+            )
+        else:
+            cursor.execute(
+                'DELETE FROM spray_history WHERE "Spray #" IS NULL AND "Block " = %s AND "Date" = %s AND "End Time" = %s',
+                (block, date, end_time or "")
+            )
+            
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        print(f"Error deleting history event: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 if __name__ == '__main__':
     app.run(debug=True, port=5001)
 

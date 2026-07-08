@@ -13,7 +13,7 @@ import Container from 'react-bootstrap/Container';
 function App() {
   return (
       <Router>
-        <Container className='d-flex w-100 h-100 mx-auto flex-column align-items-center'>
+        <Container fluid className='d-flex w-100 h-100 mx-auto flex-column align-items-center px-5'>
           <Routes>
             <Route exact path='/' element={<ProductManagement />} />
             <Route path='/database' element={<ProductManagement />} />
