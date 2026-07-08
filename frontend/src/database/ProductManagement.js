@@ -149,7 +149,9 @@ const ProductManagement = () => {
                         <tr>
                             <th>Product</th>
                             <th>FRAC</th>
-                            <th>OMRI</th>
+                            <th>Min Rate</th>
+                            <th>Max Rate</th>
+                            <th>Units</th>
                             <th>PHI</th>
                             <th>REI</th>
                             <th>Cost/Dose</th>
@@ -161,7 +163,9 @@ const ProductManagement = () => {
                             <tr key={p.Product}>
                                 <td>{p.Product}</td>
                                 <td>{p.FRAC}</td>
-                                <td>{p.omri}</td>
+                                <td>{p.min_rate}</td>
+                                <td>{p.max_rate}</td>   
+                                <td>{p.units}</td>
                                 <td>{p.phi}</td>
                                 <td>{p.rei}</td>
                                 <td>${p['Cost/Dose']?.toFixed(2)}</td>
