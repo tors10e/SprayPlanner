@@ -27,8 +27,8 @@ class ProductRepository:
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        # Load all products from the 'products' table
-        query = "SELECT * FROM products"
+        # Load all products from the 'products' table ordered alphabetically
+        query = "SELECT * FROM products ORDER BY LOWER(\"Product\") ASC"
         cursor.execute(query)
         columns = [desc[0] for desc in cursor.description]
         df = pd.DataFrame(cursor.fetchall(), columns=columns)
