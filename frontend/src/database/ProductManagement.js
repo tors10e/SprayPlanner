@@ -29,6 +29,9 @@ const EMPTY_FORM = {
     'ppe_protective_eyewear': false,
     'min_rate': 0,
     'max_rate': 0,
+    'EPA No': '',
+    'Active Ingredient': '',
+    'Singal Word': '',
     'effectiveness': {
         "Anthracnose": "na",
         "Black Rot": "na",
@@ -149,6 +152,7 @@ const ProductManagement = () => {
                         <tr>
                             <th>Product</th>
                             <th>FRAC</th>
+                            <th>Active Ingredient</th>
                             <th>Min Rate</th>
                             <th>Max Rate</th>
                             <th>Units</th>
@@ -163,6 +167,7 @@ const ProductManagement = () => {
                             <tr key={p.Product}>
                                 <td>{p.Product}</td>
                                 <td>{p.FRAC}</td>
+                                <td>{p['Active Ingredient'] || '-'}</td>
                                 <td>{p.min_rate}</td>
                                 <td>{p.max_rate}</td>   
                                 <td>{p.units}</td>
@@ -176,6 +181,7 @@ const ProductManagement = () => {
                             </tr>
                         ))}
                     </tbody>
+
                 </Table>
             </div>
 
@@ -202,6 +208,27 @@ const ProductManagement = () => {
                                 </Form.Group>
                             </Col>
                         </Row>
+                        <Row>
+                            <Col md={6}>
+                                <Form.Group className="mb-3">
+                                    <Form.Label>Active Ingredient</Form.Label>
+                                    <Form.Control type="text" name="Active Ingredient" value={formData['Active Ingredient'] || ''} onChange={handleChange} maxLength={200} placeholder="e.g. Mancozeb" />
+                                </Form.Group>
+                            </Col>
+                            <Col md={3}>
+                                <Form.Group className="mb-3">
+                                    <Form.Label>EPA Reg No</Form.Label>
+                                    <Form.Control type="text" name="EPA No" value={formData['EPA No'] || ''} onChange={handleChange} placeholder="e.g. 70506-234" />
+                                </Form.Group>
+                            </Col>
+                            <Col md={3}>
+                                <Form.Group className="mb-3">
+                                    <Form.Label>Signal Word</Form.Label>
+                                    <Form.Control type="text" name="Singal Word" value={formData['Singal Word'] || ''} onChange={handleChange} placeholder="caution, warning" />
+                                </Form.Group>
+                            </Col>
+                        </Row>
+
                         <Row>
                             <Col md={3}>
                                 <Form.Group className="mb-3">

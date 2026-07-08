@@ -15,7 +15,9 @@ def load_dotenv():
                 if line and not line.startswith("#") and "=" in line:
                     key, val = line.split("=", 1)
                     val = val.strip().strip('"').strip("'")
-                    os.environ[key.strip()] = val
+                    key_name = key.strip()
+                    if key_name not in os.environ:
+                        os.environ[key_name] = val
 
 load_dotenv()
 

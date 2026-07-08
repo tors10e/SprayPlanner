@@ -25,7 +25,10 @@ class Product:
         ppe_waterproof_gloves: bool = False,
         ppe_protective_eyewear: bool = False,
         min_rate: float = 0.0,
-        max_rate: float = 0.0
+        max_rate: float = 0.0,
+        epa_no: str = "",
+        active_ingredient: str = "",
+        signal_word: str = ""
     ):
         self.name = name
         self.frac_codes = frac_codes
@@ -50,6 +53,9 @@ class Product:
         self.ppe_protective_eyewear = ppe_protective_eyewear
         self.min_rate = min_rate
         self.max_rate = max_rate
+        self.epa_no = epa_no
+        self.active_ingredient = active_ingredient
+        self.signal_word = signal_word
 
     def is_multisite(self) -> bool:
         return self._is_multisite

@@ -71,7 +71,10 @@ class ProductRepository:
                 ppe_waterproof_gloves=bool(row.get("ppe_waterproof_gloves")) if pd.notna(row.get("ppe_waterproof_gloves")) else False,
                 ppe_protective_eyewear=bool(row.get("ppe_protective_eyewear")) if pd.notna(row.get("ppe_protective_eyewear")) else False,
                 min_rate=float(row.get("min_rate")) if pd.notna(row.get("min_rate")) else 0.0,
-                max_rate=float(row.get("max_rate")) if pd.notna(row.get("max_rate")) else 0.0
+                max_rate=float(row.get("max_rate")) if pd.notna(row.get("max_rate")) else 0.0,
+                epa_no=str(row.get("EPA No")) if pd.notna(row.get("EPA No")) else "",
+                active_ingredient=str(row.get("Active Ingredient")) if pd.notna(row.get("Active Ingredient")) else "",
+                signal_word=str(row.get("Singal Word")) if pd.notna(row.get("Singal Word")) else ""
             )
 
             products.append(product)

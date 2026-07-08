@@ -67,7 +67,7 @@ def migrate_csv_to_postgres():
     
     # Recreate the table
     print("Recreating 'products' table...")
-    cursor.execute('DROP TABLE IF EXISTS products;')
+    cursor.execute('DROP TABLE IF EXISTS products CASCADE;')
     
     create_table_sql = """
     CREATE TABLE products (
@@ -98,7 +98,10 @@ def migrate_csv_to_postgres():
         ppe_waterproof_gloves BOOLEAN DEFAULT FALSE,
         ppe_protective_eyewear BOOLEAN DEFAULT FALSE,
         min_rate NUMERIC(4,1),
-        max_rate NUMERIC(4,1)
+        max_rate NUMERIC(4,1),
+        "EPA No" VARCHAR(100),
+        "Active Ingredient" VARCHAR(200),
+        "Singal Word" VARCHAR(100)
     );
     """
     cursor.execute(create_table_sql)
@@ -114,7 +117,7 @@ def migrate_csv_to_postgres():
         "package_size", "price_source", "label_url", "rei",
         "ppe_long_sleeves_pants", "ppe_socks_shoes",
         "ppe_waterproof_gloves", "ppe_protective_eyewear",
-        "min_rate", "max_rate"
+        "min_rate", "max_rate", "EPA No", "Active Ingredient", "Singal Word"
     ]
 
     columns_str = ", ".join([f'"{c}"' for c in all_cols])
@@ -130,15 +133,144 @@ def migrate_csv_to_postgres():
                 val = None
             vals.append(val)
         # Append defaults for new fields not present in CSV
-        vals += [None, None, None, None, False, False, False, False, None, None]
+        vals += [None, None, None, None, False, False, False, False, None, None, None, None, None]
         cursor.execute(insert_sql, vals)
         count += 1
         
+    print(f"Successfully migrated {count} products to PostgreSQL!")
+
+    # --- Recreate and Seed spray_history table ---
+    print("Recreating 'spray_history' table...")
+    cursor.execute('DROP TABLE IF EXISTS spray_history;')
+    
+    create_history_table_sql = """
+    CREATE TABLE spray_history (
+        id SERIAL PRIMARY KEY,
+        "Spray #" INTEGER,
+        "Date" VARCHAR(50),
+        "End Time" VARCHAR(50),
+        "Block " VARCHAR(50),
+        "Pesticide" VARCHAR(255) REFERENCES products("Product") ON UPDATE CASCADE ON DELETE RESTRICT,
+        "Liters/Acre" DOUBLE PRECISION,
+        "Dose/acre" DOUBLE PRECISION,
+        "Dose per L @150 l" DOUBLE PRECISION,
+        "Calculated Dose" DOUBLE PRECISION,
+        "Dose Units" VARCHAR(50),
+        "Actual Amt/acre" DOUBLE PRECISION,
+        "Notes" TEXT,
+        "PHI Date" VARCHAR(50),
+        "REI_TIME" VARCHAR(50)
+    );
+    """
+    cursor.execute(create_history_table_sql)
+
+    seed_history = [
+        [4, "5/11/26", "1312", "cs", "manzate", "70506-234", "m", "mancozeb", "downy", "caution", 24.0, 66, "lbs", "7/16/26", "", 100.0, None, None, None, None, None, None, None, 1.5, ""],
+        [4, "5/11/26", "1312", "cs", "yellow jacket sulfur", "6325-13", "m2", "sulfur", "powdery", "caution", 24.0, 0, "lbs", "5/11/26", "", 100.0, None, None, 3.0, 0.03, "lbs", None, None, 3.0, ""],
+        [4, "5/11/26", "1312", "cs", "zampro", "7969=302", "45/40", "Ametoctradin, dimethomorph", "downy", "caution", 12.0, 14, "fl oz", "5/25/26", "", 200.0, 11.0, 14.0, 12.5, 0.0625, "fl oz", 375.0, "ml", 16.0, ""],
+        [4, "5/11/26", "1312", "cs", "inspire super", "100-1262", "3", "Difenoconazole, Cyprodinil*", "powdery, black rot, botrytus", "caution", 12.0, 14, "", "5/25/26", "", 16.0, 20.0, None, None, None, None, None, None, 12.0, ""],
+        [4, "5/11/26", "1448", "cs", "kphite", "42750-61-72693", "na", "Mono and dipotasium salts of phosphorous acids", "downy", "caution", 4.0, 0, "", "5/11/26", "", 150.0, None, None, 2.0, None, None, None, None, 2.0, ""],
+        [4, "5/11/26", "1448", "pm", "manzate", "70506-234", "m", "mancozeb", "downy", "caution", 24.0, 66, "lbs", "7/16/26", "", 100.0, None, None, None, None, None, None, None, 1.5, ""],
+        [4, "5/11/26", "1448", "pm", "yellow jacket sulfur", "6325-13", "m2", "sulfur", "powdery", "caution", 24.0, 0, "lbs", "5/11/26", "", 100.0, None, None, 3.0, 0.03, "lbs", None, None, 3.0, ""],
+        [4, "5/11/26", "1448", "pm", "zampro", "7969=302", "45/40", "Ametoctradin, dimethomorph", "downy", "caution", 12.0, 14, "fl oz", "5/25/26", "", 200.0, 11.0, 14.0, 12.5, 0.0625, "fl oz", 375.0, "ml", 16.0, ""],
+        [4, "5/11/26", "1448", "pm", "inspire super", "100-1262", "3", "Difenoconazole, Cyprodinil*", "powdery, black rot, botrytus", "caution", 12.0, 14, "", "5/25/26", "", None, None, None, None, None, None, None, None, 12.0, ""],
+        [4, "5/11/26", "1600", "tr", "manzate", "70506-234", "m", "mancozeb", "downy", "caution", 24.0, 66, "lbs", "7/16/26", "", 100.0, None, None, None, None, None, None, None, 1.5, ""],
+        [4, "5/11/26", "1600", "tr", "yellow jacket sulfur", "6325-13", "m2", "sulfur", "powdery", "caution", 24.0, 0, "lbs", "5/11/26", "", 100.0, None, None, 3.0, 0.03, "lbs", None, None, 3.0, ""],
+        [4, "5/11/26", "1600", "tr", "zampro", "7969=302", "45/40", "Ametoctradin, dimethomorph", "downy", "caution", 12.0, 14, "fl oz", "5/25/26", "", 200.0, 11.0, 14.0, 12.5, 0.0625, "fl oz", 375.0, "ml", 16.0, ""],
+        [4, "5/11/26", "1600", "tr", "inspire super", "100-1262", "3", "Difenoconazole, Cyprodinil*", "powdery, black rot, botrytus", "caution", 12.0, 14, "", "5/25/26", "", None, None, None, None, None, None, None, None, 12.0, ""],
+        [4, "5/11/26", "1700", "ch", "damoil", None, None, None, None, None, None, None, "", "", "", None, None, None, None, None, None, None, None, 2.0, ""],
+        [4, "5/11/26", "1700", "ch", "kphite", None, None, None, None, None, None, None, "", "", "", None, None, None, None, None, None, None, None, 2.0, ""],
+        [5, "5/30/26", "NA", "cs", "sulfur", None, None, None, None, None, None, None, "", "", "", 3.0, None, None, None, None, None, None, None, None, ""],
+        [None, "", "", "cs", "Vivando", "7969-284", "U8", "Metrafenanone", "powdery mildew", "caution", 12.0, 14, "fl oz", "1/14/00", "", 200.0, 10.3, 15.4, 12.85, 12.0, "fl oz", 72000.0, "ml", 250.0, ""],
+        [None, "", "", "cs", "renaz", "91234-198", "21", "Cyazofamid", "Downy", "caution", 12.0, 30, "fl oz", "1/30/00", "", 150.0, 2.1, 2.75, 2.425, 2.5, "fl oz", 375.0, "", None, ""],
+        [None, "", "", "cs", "kphite", "42750-61-72693", "na", "Mono and dipotasium salts of phosphorous acids", "downy", "caution", 4.0, 0, "", "1/0/00", "", 150.0, None, None, 2.0, None, None, None, None, 2.0, ""],
+        [None, "", "", "cs", "manzate", "70506-234", "m", "mancozeb", "downy", "caution", 24.0, 66, "lbs", "3/6/00", "", None, None, None, None, None, None, None, None, 1.5, ""],
+        [None, "", "", "pm", "sulfur", None, None, None, None, None, None, None, "", "", "", 3.0, None, None, None, None, None, None, None, None, ""],
+        [None, "", "", "pm", "Vivando", "7969-284", "U8", "Metrafenanone", "powdery mildew", "caution", 12.0, 14, "fl oz", "1/14/00", "", 200.0, 10.3, 15.4, 12.85, 12.0, "fl oz", 72000.0, "ml", 250.0, ""],
+        [None, "", "", "pm", "renaz", "91234-198", "21", "Cyazofamid", "Downy", "caution", 12.0, 30, "fl oz", "1/30/00", "", 150.0, 2.1, 2.75, 2.425, 2.5, "fl oz", 375.0, "", None, ""],
+        [None, "", "", "pm", "kphite", "42750-61-72693", "na", "Mono and dipotasium salts of phosphorous acids", "downy", "caution", 4.0, 0, "", "1/0/00", "", 150.0, None, None, 2.0, None, None, None, None, 2.0, ""],
+        [None, "", "", "pm", "manzate", "70506-234", "m", "mancozeb", "downy", "caution", 24.0, 66, "lbs", "3/6/00", "", None, None, None, None, None, None, None, None, 1.5, ""],
+        [None, "", "", "tr", "sulfur", None, None, None, None, None, None, None, "", "", "", 3.0, None, None, None, None, None, None, None, None, ""],
+        [None, "", "", "tr", "Vivando", "7969-284", "U8", "Metrafenanone", "powdery mildew", "caution", 12.0, 14, "fl oz", "1/14/00", "", 200.0, 10.3, 15.4, 12.85, 12.0, "fl oz", 72000.0, "ml", 250.0, ""],
+        [None, "", "", "tr", "renaz", "91234-198", "21", "Cyazofamid", "Downy", "caution", 12.0, 30, "fl oz", "1/30/00", "", 150.0, 2.1, 2.75, 2.425, 2.5, "fl oz", 375.0, "", None, ""],
+        [None, "", "", "tr", "kphite", "42750-61-72693", "na", "Mono and dipotasium salts of phosphorous acids", "downy", "caution", 4.0, 0, "", "1/0/00", "", 150.0, None, None, 2.0, None, None, None, None, 2.0, ""],
+        [None, "", "", "ch", "damoil", "19713-123", "na", "mineral oil", "powdery, botrytis", "caution", 4.0, 2, "", "1/2/00", "", None, None, None, None, None, None, None, None, 2.0, ""],
+        [None, "", "", "ch", "kphite", "42750-61-72693", "na", "Mono and dipotasium salts of phosphorous acids", "downy", "caution", 4.0, 0, "", "1/0/00", "", 150.0, None, None, 2.0, None, None, None, None, 2.0, ""]
+    ]
+
+    # UPSERT chemical products first to fulfill foreign key references
+    print("Upserting seed products from history...")
+    sql_product_upsert = """
+    INSERT INTO products ("Product", "EPA No", "FRAC", "Active Ingredient", "Primary Disease", "Singal Word", "rei", "phi", "units", "min_rate", "max_rate")
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ON CONFLICT ("Product") DO UPDATE SET
+        "EPA No" = COALESCE(EXCLUDED."EPA No", products."EPA No"),
+        "FRAC" = COALESCE(EXCLUDED."FRAC", products."FRAC"),
+        "Active Ingredient" = COALESCE(EXCLUDED."Active Ingredient", products."Active Ingredient"),
+        "Singal Word" = COALESCE(EXCLUDED."Singal Word", products."Singal Word"),
+        "rei" = COALESCE(EXCLUDED."rei", products."rei"),
+        "phi" = COALESCE(EXCLUDED."phi", products."phi"),
+        "units" = COALESCE(EXCLUDED."units", products."units"),
+        "min_rate" = COALESCE(EXCLUDED."min_rate", products."min_rate"),
+        "max_rate" = COALESCE(EXCLUDED."max_rate", products."max_rate")
+    """
+    
+    for row in seed_history:
+        p_name = row[4]
+        if not p_name:
+            continue
+        cursor.execute(sql_product_upsert, (
+            p_name,
+            row[5] or None,
+            row[6] or None,
+            row[7] or None,
+            row[8] or None,
+            row[9] or None,
+            int(row[10]) if row[10] is not None else None,
+            int(row[11]) if row[11] is not None else None,
+            row[12] or None,
+            row[16] or None,
+            row[17] or None
+        ))
+
+    # Insert historical log entries
+    unique_history_cols = [
+        "Spray #", "Date", "End Time", "Block ", "Pesticide", "Liters/Acre", 
+        "Dose/acre", "Dose per L @150 l", "Calculated Dose", "Dose Units", "Actual Amt/acre", "Notes", 
+        "PHI Date", "REI_TIME"
+    ]
+    
+    h_cols_str = ", ".join([f'"{c}"' for c in unique_history_cols])
+    h_placeholders = ", ".join(["%s"] * len(unique_history_cols))
+    insert_history_sql = f'INSERT INTO spray_history ({h_cols_str}) VALUES ({h_placeholders})'
+
+    h_count = 0
+    for vals in seed_history:
+        # Map values from index positions in seed_history array
+        history_vals = [
+            int(vals[0]) if vals[0] is not None else None, # Spray #
+            vals[1] or None, # Date
+            vals[2] or None, # End Time
+            vals[3] or None, # Block 
+            vals[4], # Pesticide
+            float(vals[15]) if vals[15] is not None else None, # Liters/Acre
+            float(vals[18]) if vals[18] is not None else None, # Dose/acre
+            float(vals[19]) if vals[19] is not None else None, # Dose per L @150 l
+            float(vals[21]) if vals[21] is not None else None, # Calculated Dose
+            vals[22] or None, # Dose Units
+            float(vals[23]) if vals[23] is not None else None, # Actual Amt/acre
+            vals[24] or "", # Notes
+            vals[13] or None, # PHI Date
+            vals[14] or None # REI_TIME
+        ]
+        cursor.execute(insert_history_sql, history_vals)
+        h_count += 1
+
     conn.commit()
     cursor.close()
     conn.close()
     
-    print(f"Successfully migrated {count} products to PostgreSQL!")
+    print(f"Successfully seeded {h_count} history records to PostgreSQL!")
 
 if __name__ == "__main__":
     migrate_csv_to_postgres()
