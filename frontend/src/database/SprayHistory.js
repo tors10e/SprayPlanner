@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Container, Table, Button, Modal, Form, Row, Col, Card, Alert } from 'react-bootstrap';
+import { Container, Table, Button, Modal, Form, Row, Col, Card, Alert, Badge } from 'react-bootstrap';
 import Header from "../components/header";
 import NavBar from "../components/navbar";
 import Footer from "../components/footer";
@@ -545,8 +545,7 @@ const SprayHistory = () => {
                                             <thead className="table-light">
                                                 <tr>
                                                     <th>Pesticide</th>
-                                                    <th>EPA No</th>
-                                                    <th>Active Ingredient</th>
+                                                    <th>FRAC Group</th>
                                                     <th>Dose/acre</th>
                                                     <th>Water (L/Ac)</th>
                                                     <th>Notes</th>
@@ -556,8 +555,11 @@ const SprayHistory = () => {
                                                 {event.items.map((item, idx) => (
                                                     <tr key={`event-item-${idx}`}>
                                                         <td><strong>{item["Pesticide"] || '-'}</strong></td>
-                                                        <td><small className="text-secondary">{item["EPA No"] || '-'}</small></td>
-                                                        <td><small className="text-muted">{item["Active Ingredient"] || '-'}</small></td>
+                                                        <td>
+                                                            {item["Group"] ? (
+                                                                <Badge bg="info" className="text-dark">FRAC {item["Group"]}</Badge>
+                                                            ) : '-'}
+                                                        </td>
                                                         <td>{item["Dose/acre"] ? `${item["Dose/acre"]} ${item["Rate Units"] || ''}` : '-'}</td>
                                                         <td>{item["Liters/Acre"] || '-'}</td>
                                                         <td><small className="text-muted">{item["Notes"]}</small></td>
@@ -596,8 +598,7 @@ const SprayHistory = () => {
                                         <thead className="table-light">
                                             <tr>
                                                 <th>Pesticide</th>
-                                                <th>EPA No</th>
-                                                <th>Active Ingredient</th>
+                                                <th>FRAC Group</th>
                                                 <th>Dose/acre</th>
                                                 <th>Water (L/Ac)</th>
                                                 <th>Notes</th>
@@ -607,8 +608,11 @@ const SprayHistory = () => {
                                             {event.items.map((item, idx) => (
                                                 <tr key={`unscheduled-item-${idx}`}>
                                                     <td><strong>{item["Pesticide"] || '-'}</strong></td>
-                                                    <td><small className="text-secondary">{item["EPA No"] || '-'}</small></td>
-                                                    <td><small className="text-muted">{item["Active Ingredient"] || '-'}</small></td>
+                                                    <td>
+                                                        {item["Group"] ? (
+                                                            <Badge bg="info" className="text-dark">FRAC {item["Group"]}</Badge>
+                                                        ) : '-'}
+                                                    </td>
                                                     <td>{item["Dose/acre"] ? `${item["Dose/acre"]} ${item["Rate Units"] || ''}` : '-'}</td>
                                                     <td>{item["Liters/Acre"] || '-'}</td>
                                                     <td><small className="text-muted">{item["Notes"]}</small></td>
@@ -624,7 +628,7 @@ const SprayHistory = () => {
             </div>
 
             {/* ── CRUD Modal ── */}
-            <Modal show={showModal} onHide={handleClose} size="lg" backdrop="static">
+            <Modal show={showModal} onHide={handleClose} size="xl" backdrop="static">
                 <Modal.Header closeButton>
                     <Modal.Title>{currentId ? "Edit Block Spray Run" : "Add Block Spray Run"}</Modal.Title>
                 </Modal.Header>
