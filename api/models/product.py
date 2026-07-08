@@ -15,7 +15,17 @@ class Product:
         units: str = "",
         price: float = 0.0,
         dose_avg: float = 0.0,
-        container_size: float = 0.0
+        container_size: float = 0.0,
+        package_size: float = 0.0,
+        price_source: str = "",
+        label_url: str = "",
+        rei: int = 0,
+        ppe_long_sleeves_pants: bool = False,
+        ppe_socks_shoes: bool = False,
+        ppe_waterproof_gloves: bool = False,
+        ppe_protective_eyewear: bool = False,
+        min_rate: float = 0.0,
+        max_rate: float = 0.0
     ):
         self.name = name
         self.frac_codes = frac_codes
@@ -30,6 +40,16 @@ class Product:
         self.price = price
         self.dose_avg = dose_avg
         self.container_size = container_size
+        self.package_size = package_size
+        self.price_source = price_source
+        self.label_url = label_url
+        self.rei = rei
+        self.ppe_long_sleeves_pants = ppe_long_sleeves_pants
+        self.ppe_socks_shoes = ppe_socks_shoes
+        self.ppe_waterproof_gloves = ppe_waterproof_gloves
+        self.ppe_protective_eyewear = ppe_protective_eyewear
+        self.min_rate = min_rate
+        self.max_rate = max_rate
 
     def is_multisite(self) -> bool:
         return self._is_multisite

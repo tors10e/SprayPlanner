@@ -7,11 +7,7 @@ from config import Config
 def migrate_csv_to_postgres():
     config = Config()
     
-    # Check if database is configured for Postgres
-    if config.db_type != "postgres":
-        print("Error: DB_TYPE in configuration is not set to 'postgres'. Please set DB_TYPE=postgres.")
-        sys.exit(1)
-        
+
     csv_path = config.excel_file
     if not os.path.exists(csv_path):
         # Fallback to parent dir search
@@ -92,31 +88,49 @@ def migrate_csv_to_postgres():
         "Botrytis" VARCHAR(50),
         "Downy" VARCHAR(50),
         "Phomopsis" VARCHAR(50),
-        "Powdery" VARCHAR(50)
+        "Powdery" VARCHAR(50),
+        package_size NUMERIC(6,1),
+        price_source TEXT,
+        label_url TEXT,
+        rei INTEGER,
+        ppe_long_sleeves_pants BOOLEAN DEFAULT FALSE,
+        ppe_socks_shoes BOOLEAN DEFAULT FALSE,
+        ppe_waterproof_gloves BOOLEAN DEFAULT FALSE,
+        ppe_protective_eyewear BOOLEAN DEFAULT FALSE,
+        min_rate NUMERIC(4,1),
+        max_rate NUMERIC(4,1)
     );
     """
     cursor.execute(create_table_sql)
     
-    # Insert rows
-    cols = [
-        "Product", "Primary Disease", "FRAC", "omri", "phi", 
-        "Max Applications", "Container Size", "units", "Price", 
-        "Dose (avg)", "Cost/Dose", "Anthracnose", "Black Rot", 
+    # Insert rows — new columns (package_size, price_source, etc.) default to None/False for CSV data
+    csv_cols = [
+        "Product", "Primary Disease", "FRAC", "omri", "phi",
+        "Max Applications", "Container Size", "units", "Price",
+        "Dose (avg)", "Cost/Dose", "Anthracnose", "Black Rot",
         "Bitter Rot", "Botrytis", "Downy", "Phomopsis", "Powdery"
     ]
-    
-    columns_str = ", ".join([f'"{c}"' for c in cols])
-    placeholders = ", ".join(["%s"] * len(cols))
+    all_cols = csv_cols + [
+        "package_size", "price_source", "label_url", "rei",
+        "ppe_long_sleeves_pants", "ppe_socks_shoes",
+        "ppe_waterproof_gloves", "ppe_protective_eyewear",
+        "min_rate", "max_rate"
+    ]
+
+    columns_str = ", ".join([f'"{c}"' for c in all_cols])
+    placeholders = ", ".join(["%s"] * len(all_cols))
     insert_sql = f'INSERT INTO products ({columns_str}) VALUES ({placeholders})'
-    
+
     count = 0
     for _, row in df.iterrows():
         vals = []
-        for col in cols:
+        for col in csv_cols:
             val = row.get(col)
             if pd.isna(val):
                 val = None
             vals.append(val)
+        # Append defaults for new fields not present in CSV
+        vals += [None, None, None, None, False, False, False, False, None, None]
         cursor.execute(insert_sql, vals)
         count += 1
         

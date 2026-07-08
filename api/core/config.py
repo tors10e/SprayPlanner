@@ -2,16 +2,31 @@ import os
 from datetime import datetime
 from typing import Dict, Set
 
+def load_dotenv():
+    # config.py is in api/core/config.py, project root is three levels up
+    core_dir = os.path.dirname(os.path.abspath(__file__))
+    api_dir = os.path.dirname(core_dir)
+    project_root = os.path.dirname(api_dir)
+    dotenv_path = os.path.join(project_root, ".env")
+    if os.path.exists(dotenv_path):
+        with open(dotenv_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, val = line.split("=", 1)
+                    val = val.strip().strip('"').strip("'")
+                    os.environ[key.strip()] = val
+
+load_dotenv()
+
 class Config:
     def __init__(self):
         # Get the directory of the current file (SprayPlanner/api/core)
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         
         self.excel_file = os.path.join(base_dir, "spray_product_information.csv")
-        self.database_file = os.path.join(base_dir, "core/database.db")
         
         # Database configurations
-        self.db_type = os.environ.get("DB_TYPE", "sqlite").lower()
         self.database_url = os.environ.get("DATABASE_URL")
         self.db_host = os.environ.get("DB_HOST", "localhost")
         try:
@@ -20,7 +35,7 @@ class Config:
             self.db_port = 5432
         self.db_name = os.environ.get("DB_NAME", "sprayplanner")
         self.db_user = os.environ.get("DB_USER", "postgres")
-        self.db_password = os.environ.get("DB_PASSWORD", "postgres")
+        self.db_password = os.environ.get("DB_PASSWORD", "Black1ce!")
 
         self.total_acres = 4
         self.sulfur_sensitive_acres = 0

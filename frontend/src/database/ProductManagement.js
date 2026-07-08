@@ -7,6 +7,39 @@ import ReactGA from "react-ga4";
 
 const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5001/api/products";
 
+const EMPTY_FORM = {
+    'Product': '',
+    'Primary Disease': '',
+    'FRAC': '',
+    'omri': 0,
+    'phi': 0,
+    'Max Applications': 999,
+    'Container Size': 0,
+    'units': '',
+    'Price': 0,
+    'Dose (avg)': 0,
+    'Cost/Dose': 0,
+    'package_size': 0,
+    'price_source': '',
+    'label_url': '',
+    'rei': 0,
+    'ppe_long_sleeves_pants': false,
+    'ppe_socks_shoes': false,
+    'ppe_waterproof_gloves': false,
+    'ppe_protective_eyewear': false,
+    'min_rate': 0,
+    'max_rate': 0,
+    'effectiveness': {
+        "Anthracnose": "na",
+        "Black Rot": "na",
+        "Bitter Rot": "na",
+        "Botrytis": "na",
+        "Downy": "na",
+        "Phomopsis": "na",
+        "Powdery": "na"
+    }
+};
+
 const ProductManagement = () => {
     ReactGA.send({ hitType: "pageview", page: "/database", title: "Product Management" });
 
@@ -35,28 +68,7 @@ const ProductManagement = () => {
             setFormData({ ...product });
         } else {
             setOriginalName(null);
-            setFormData({
-                'Product': '',
-                'Primary Disease': '',
-                'FRAC': '',
-                'omri': '',
-                'phi': 0,
-                'Max Applications': 999,
-                'Container Size': 0,
-                'units': '',
-                'Price': 0,
-                'Dose (avg)': 0,
-                'Cost/Dose': 0,
-                'effectiveness': {
-                    "Anthracnose": "na",
-                    "Black Rot": "na",
-                    "Bitter Rot": "na",
-                    "Botrytis": "na",
-                    "Downy": "na",
-                    "Phomopsis": "na",
-                    "Powdery": "na"
-                }
-            });
+            setFormData({ ...EMPTY_FORM });
         }
         setShowModal(true);
     };
@@ -64,7 +76,7 @@ const ProductManagement = () => {
     const handleClose = () => setShowModal(false);
 
     const handleChange = (e) => {
-        const { name, value } = e.target;
+        const { name, value, type, checked } = e.target;
         if (name.includes('.')) {
             const [parent, child] = name.split('.');
             setFormData({
@@ -74,6 +86,8 @@ const ProductManagement = () => {
                     [child]: value
                 }
             });
+        } else if (type === 'checkbox') {
+            setFormData({ ...formData, [name]: checked });
         } else {
             setFormData({ ...formData, [name]: value });
         }
@@ -125,11 +139,11 @@ const ProductManagement = () => {
         <Container>
             <Row><Header /></Row>
             <Row className="navbar"><NavBar /></Row>
-            
+
             <div className="mt-4">
                 <h2>Spray Chemical Database</h2>
                 <Button variant="primary" className="mb-3" onClick={() => handleShow()}>Add New Product</Button>
-                
+
                 <Table striped bordered hover responsive>
                     <thead>
                         <tr>
@@ -137,6 +151,7 @@ const ProductManagement = () => {
                             <th>FRAC</th>
                             <th>OMRI</th>
                             <th>PHI</th>
+                            <th>REI</th>
                             <th>Cost/Dose</th>
                             <th>Actions</th>
                         </tr>
@@ -148,6 +163,7 @@ const ProductManagement = () => {
                                 <td>{p.FRAC}</td>
                                 <td>{p.omri}</td>
                                 <td>{p.phi}</td>
+                                <td>{p.rei}</td>
                                 <td>${p['Cost/Dose']?.toFixed(2)}</td>
                                 <td>
                                     <Button variant="info" size="sm" className="me-2" onClick={() => handleShow(p)}>Edit</Button>
@@ -165,6 +181,9 @@ const ProductManagement = () => {
                 </Modal.Header>
                 <Modal.Body>
                     <Form onSubmit={handleSubmit}>
+
+                        {/* ── Basic Info ── */}
+                        <h5 className="mb-2">Basic Information</h5>
                         <Row>
                             <Col md={6}>
                                 <Form.Group className="mb-3">
@@ -180,66 +199,187 @@ const ProductManagement = () => {
                             </Col>
                         </Row>
                         <Row>
-                            <Col md={4}>
+                            <Col md={3}>
                                 <Form.Group className="mb-3">
                                     <Form.Label>FRAC</Form.Label>
                                     <Form.Control type="text" name="FRAC" value={formData.FRAC || ''} onChange={handleChange} />
                                 </Form.Group>
                             </Col>
-                            <Col md={4}>
+                            <Col md={3}>
                                 <Form.Group className="mb-3">
                                     <Form.Label>OMRI</Form.Label>
-                                    <Form.Select name="omri" value={formData.omri} onChange={handleChange}>
+                                    <Form.Select name="omri" value={formData.omri ?? 0} onChange={handleChange}>
                                         <option value={0}>No</option>
                                         <option value={1}>Yes</option>
                                     </Form.Select>
-                                    </Form.Group>
-                                    </Col>
-                                    <Col md={4}>
-                                    <Form.Group className="mb-3">
-                                    <Form.Label>PHI</Form.Label>
-                                    <Form.Control type="number" name="phi" value={formData.phi || 0} onChange={handleChange} />
-                                    </Form.Group>
-                                    </Col>
-                                    </Row>
-                                    <Row>
-                                    <Col md={4}>
-                                    <Form.Group className="mb-3">
-                                    <Form.Label>Price ($)</Form.Label>
-                                    <Form.Control type="number" step="0.01" name="Price" value={formData.Price || 0} onChange={handleChange} />
-                                    </Form.Group>
-                                    </Col>
-                                    <Col md={4}>
-                                    <Form.Group className="mb-3">
-                                    <Form.Label>Dose (avg)</Form.Label>
-                                    <Form.Control type="number" step="0.01" name="Dose (avg)" value={formData['Dose (avg)'] || 0} onChange={handleChange} />
-                                    </Form.Group>
-                                    </Col>
-                                    <Col md={4}>
-                                    <Form.Group className="mb-3">
-                                    <Form.Label>Cost/Dose ($)</Form.Label>
-                                    <Form.Control type="number" step="0.01" name="Cost/Dose" value={formData['Cost/Dose'] || 0} onChange={handleChange} />
-                                    </Form.Group>
-                                    </Col>
-                                    </Row>
+                                </Form.Group>
+                            </Col>
+                            <Col md={3}>
+                                <Form.Group className="mb-3">
+                                    <Form.Label>PHI (days)</Form.Label>
+                                    <Form.Control type="number" name="phi" value={formData.phi ?? 0} onChange={handleChange} />
+                                </Form.Group>
+                            </Col>
+                            <Col md={3}>
+                                <Form.Group className="mb-3">
+                                    <Form.Label>REI (hours)</Form.Label>
+                                    <Form.Control type="number" name="rei" value={formData.rei ?? 0} onChange={handleChange} />
+                                </Form.Group>
+                            </Col>
+                        </Row>
+                        <Row>
+                            <Col md={4}>
+                                <Form.Group className="mb-3">
+                                    <Form.Label>Max Applications</Form.Label>
+                                    <Form.Control type="number" name="Max Applications" value={formData['Max Applications'] ?? 999} onChange={handleChange} />
+                                </Form.Group>
+                            </Col>
+                            <Col md={4}>
+                                <Form.Group className="mb-3">
+                                    <Form.Label>Units</Form.Label>
+                                    <Form.Control type="text" name="units" value={formData.units || ''} onChange={handleChange} />
+                                </Form.Group>
+                            </Col>
+                            <Col md={4}>
+                                <Form.Group className="mb-3">
+                                    <Form.Label>Label URL</Form.Label>
+                                    <Form.Control type="url" name="label_url" value={formData.label_url || ''} onChange={handleChange} placeholder="https://..." />
+                                </Form.Group>
+                            </Col>
+                        </Row>
 
-                                    <h5>Effectiveness</h5>
-                                    <Row>
-                                    {formData.effectiveness && Object.keys(formData.effectiveness).map((disease) => (
-                                    <Col md={4} key={disease}>
+                        {/* ── Pricing & Packaging ── */}
+                        <hr />
+                        <h5 className="mb-2">Pricing &amp; Packaging</h5>
+                        <Row>
+                            <Col md={3}>
+                                <Form.Group className="mb-3">
+                                    <Form.Label>Price ($)</Form.Label>
+                                    <Form.Control type="number" step="0.01" name="Price" value={formData.Price ?? 0} onChange={handleChange} />
+                                </Form.Group>
+                            </Col>
+                            <Col md={3}>
+                                <Form.Group className="mb-3">
+                                    <Form.Label>Price Source</Form.Label>
+                                    <Form.Control type="text" name="price_source" value={formData.price_source || ''} onChange={handleChange} placeholder="e.g. Amazon, Local co-op" />
+                                </Form.Group>
+                            </Col>
+                            <Col md={3}>
+                                <Form.Group className="mb-3">
+                                    <Form.Label>Container Size</Form.Label>
+                                    <Form.Control type="number" step="0.01" name="Container Size" value={formData['Container Size'] ?? 0} onChange={handleChange} />
+                                </Form.Group>
+                            </Col>
+                            <Col md={3}>
+                                <Form.Group className="mb-3">
+                                    <Form.Label>Package Size</Form.Label>
+                                    <Form.Control type="number" step="0.1" name="package_size" value={formData.package_size ?? 0} onChange={handleChange} />
+                                </Form.Group>
+                            </Col>
+                        </Row>
+                        <Row>
+                            <Col md={4}>
+                                <Form.Group className="mb-3">
+                                    <Form.Label>Dose (avg)</Form.Label>
+                                    <Form.Control type="number" step="0.01" name="Dose (avg)" value={formData['Dose (avg)'] ?? 0} onChange={handleChange} />
+                                </Form.Group>
+                            </Col>
+                            <Col md={4}>
+                                <Form.Group className="mb-3">
+                                    <Form.Label>Cost/Dose ($)</Form.Label>
+                                    <Form.Control type="number" step="0.01" name="Cost/Dose" value={formData['Cost/Dose'] ?? 0} onChange={handleChange} />
+                                </Form.Group>
+                            </Col>
+                        </Row>
+
+                        {/* ── Application Rates ── */}
+                        <hr />
+                        <h5 className="mb-2">Application Rates</h5>
+                        <Row>
+                            <Col md={6}>
+                                <Form.Group className="mb-3">
+                                    <Form.Label>Minimum Rate</Form.Label>
+                                    <Form.Control type="number" step="0.1" name="min_rate" value={formData.min_rate ?? 0} onChange={handleChange} />
+                                </Form.Group>
+                            </Col>
+                            <Col md={6}>
+                                <Form.Group className="mb-3">
+                                    <Form.Label>Maximum Rate</Form.Label>
+                                    <Form.Control type="number" step="0.1" name="max_rate" value={formData.max_rate ?? 0} onChange={handleChange} />
+                                </Form.Group>
+                            </Col>
+                        </Row>
+
+                        {/* ── Applicator PPE ── */}
+                        <hr />
+                        <h5 className="mb-2">Applicator PPE Requirements</h5>
+                        <Row>
+                            <Col md={6}>
+                                <Form.Check
+                                    type="checkbox"
+                                    id="ppe_long_sleeves_pants"
+                                    name="ppe_long_sleeves_pants"
+                                    label="Long Sleeves and Pants"
+                                    checked={!!formData.ppe_long_sleeves_pants}
+                                    onChange={handleChange}
+                                    className="mb-2"
+                                />
+                            </Col>
+                            <Col md={6}>
+                                <Form.Check
+                                    type="checkbox"
+                                    id="ppe_socks_shoes"
+                                    name="ppe_socks_shoes"
+                                    label="Socks and Shoes"
+                                    checked={!!formData.ppe_socks_shoes}
+                                    onChange={handleChange}
+                                    className="mb-2"
+                                />
+                            </Col>
+                            <Col md={6}>
+                                <Form.Check
+                                    type="checkbox"
+                                    id="ppe_waterproof_gloves"
+                                    name="ppe_waterproof_gloves"
+                                    label="Waterproof Gloves"
+                                    checked={!!formData.ppe_waterproof_gloves}
+                                    onChange={handleChange}
+                                    className="mb-2"
+                                />
+                            </Col>
+                            <Col md={6}>
+                                <Form.Check
+                                    type="checkbox"
+                                    id="ppe_protective_eyewear"
+                                    name="ppe_protective_eyewear"
+                                    label="Protective Eyewear"
+                                    checked={!!formData.ppe_protective_eyewear}
+                                    onChange={handleChange}
+                                    className="mb-2"
+                                />
+                            </Col>
+                        </Row>
+
+                        {/* ── Disease Effectiveness ── */}
+                        <hr />
+                        <h5 className="mb-2">Disease Effectiveness</h5>
+                        <Row>
+                            {formData.effectiveness && Object.keys(formData.effectiveness).map((disease) => (
+                                <Col md={4} key={disease}>
                                     <Form.Group className="mb-3">
                                         <Form.Label>{disease}</Form.Label>
                                         <Form.Select name={`effectiveness.${disease}`} value={formData.effectiveness[disease]} onChange={handleChange}>
                                             <option value="na">na</option>
-                                            <option value="poor">poor</option>
-                                            <option value="fair">fair</option>
-                                            <option value="good">good</option>
-                                            <option value="excellent">excellent</option>
+                                            <option value="f">f (Fair)</option>
+                                            <option value="g">g (Good)</option>
+                                            <option value="vg">vg (Very Good)</option>
+                                            <option value="e">e (Excellent)</option>
                                         </Form.Select>
                                     </Form.Group>
-                                    </Col>
-                                    ))}
-                                    </Row>
+                                </Col>
+                            ))}
+                        </Row>
+
                         <Button variant="primary" type="submit">Save Changes</Button>
                     </Form>
                 </Modal.Body>

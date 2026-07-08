@@ -25,6 +25,16 @@ def get_products():
         'Price': p.price,
         'Dose (avg)': p.dose_avg,
         'Cost/Dose': p.cost_per_dose,
+        'package_size': p.package_size,
+        'price_source': p.price_source,
+        'label_url': p.label_url,
+        'rei': p.rei,
+        'ppe_long_sleeves_pants': p.ppe_long_sleeves_pants,
+        'ppe_socks_shoes': p.ppe_socks_shoes,
+        'ppe_waterproof_gloves': p.ppe_waterproof_gloves,
+        'ppe_protective_eyewear': p.ppe_protective_eyewear,
+        'min_rate': p.min_rate,
+        'max_rate': p.max_rate,
         'effectiveness': p.effectiveness
     } for p in products])
 
@@ -37,10 +47,14 @@ def update_product(name):
             data.update(eff)
 
         valid_keys = [
-            "Product", "Primary Disease", "FRAC", "omri", "phi", 
-            "Max Applications", "Container Size", "units", "Price", 
-            "Dose (avg)", "Cost/Dose", "Anthracnose", "Black Rot", 
-            "Bitter Rot", "Botrytis", "Downy", "Phomopsis", "Powdery"
+            "Product", "Primary Disease", "FRAC", "omri", "phi",
+            "Max Applications", "Container Size", "units", "Price",
+            "Dose (avg)", "Cost/Dose", "Anthracnose", "Black Rot",
+            "Bitter Rot", "Botrytis", "Downy", "Phomopsis", "Powdery",
+            "package_size", "price_source", "label_url", "rei",
+            "ppe_long_sleeves_pants", "ppe_socks_shoes",
+            "ppe_waterproof_gloves", "ppe_protective_eyewear",
+            "min_rate", "max_rate"
         ]
         filtered_data = {k: v for k, v in data.items() if k in valid_keys}
         
@@ -61,10 +75,14 @@ def add_product():
         
         # Filter only keys that exist in the database
         valid_keys = [
-            "Product", "Primary Disease", "FRAC", "omri", "phi", 
-            "Max Applications", "Container Size", "units", "Price", 
-            "Dose (avg)", "Cost/Dose", "Anthracnose", "Black Rot", 
-            "Bitter Rot", "Botrytis", "Downy", "Phomopsis", "Powdery"
+            "Product", "Primary Disease", "FRAC", "omri", "phi",
+            "Max Applications", "Container Size", "units", "Price",
+            "Dose (avg)", "Cost/Dose", "Anthracnose", "Black Rot",
+            "Bitter Rot", "Botrytis", "Downy", "Phomopsis", "Powdery",
+            "package_size", "price_source", "label_url", "rei",
+            "ppe_long_sleeves_pants", "ppe_socks_shoes",
+            "ppe_waterproof_gloves", "ppe_protective_eyewear",
+            "min_rate", "max_rate"
         ]
         filtered_data = {k: v for k, v in data.items() if k in valid_keys}
         
