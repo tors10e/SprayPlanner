@@ -3,6 +3,15 @@ from flask_cors import CORS
 from core.config import Config
 from core.repository import ProductRepository
 from core.history_repository import SprayHistoryRepository
+from constraints.phi_constraint import PHIConstraint
+from constraints.frac_rotation_constraint import FRACRotationConstraint
+from constraints.max_application_constraint import MaxApplicationConstraint
+from constraints.oil_sulfur_constraint import OilSulfurConstraint
+from constraints.multi_year_rotation_constraint import MultiYearRotationConstraint
+from services.scheduler import Scheduler
+from services.mix_builder import MixBuilder
+from services.planner import Planner
+from datetime import datetime
 import os
 import io
 import pandas as pd
@@ -284,6 +293,62 @@ def delete_history_event():
         return jsonify({'status': 'success'})
     except Exception as e:
         print(f"Error deleting history event: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/planner/generate', methods=['POST'])
+def generate_spray_plan():
+    try:
+        data = request.json or {}
+        years = data.get("years", [2026])
+        organic_only = data.get("organic_only", False)
+        default_interval = int(data.get("default_interval", 14))
+        start_date_month_day = data.get("start_date_month_day", "04-01")
+        end_date_month_day = data.get("end_date_month_day", "10-20")
+        total_acres = float(data.get("total_acres", config.total_acres))
+        
+        temp_config = Config()
+        temp_config.total_acres = total_acres
+        temp_config.default_interval = default_interval
+        
+        product_repo = ProductRepository(temp_config)
+        products = product_repo.load_products()
+        
+        if organic_only:
+            products = [p for p in products if str(p.omri) == '1']
+            
+        constraints = [
+            PHIConstraint(temp_config),
+            FRACRotationConstraint(temp_config),
+            MaxApplicationConstraint(),
+            OilSulfurConstraint(),
+            MultiYearRotationConstraint()
+        ]
+        
+        mix_builder = MixBuilder(temp_config, constraints)
+        planner = Planner(temp_config, mix_builder)
+        
+        multi_year_plan = {}
+        history = {
+            "multi_year_history": {}
+        }
+        
+        for year in years:
+            temp_config.start_date = f"{year}-{start_date_month_day}"
+            temp_config.end_date = f"{year}-{end_date_month_day}"
+            temp_config.harvest_date = datetime(year, 9, 20)
+            
+            scheduler = Scheduler(temp_config)
+            schedule = scheduler.build_schedule()
+            
+            plan = planner.optimize_season(schedule, products, initial_history=history)
+            multi_year_plan[year] = plan
+            
+        return jsonify({
+            'status': 'success',
+            'plans': multi_year_plan
+        })
+    except Exception as e:
+        print(f"Error generating spray plan: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 if __name__ == '__main__':

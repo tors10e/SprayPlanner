@@ -8,6 +8,7 @@ ReactGA.initialize(TRACKING_ID);
 
 import ProductManagement from './database/ProductManagement';
 import SprayHistory from './database/SprayHistory';
+import SprayPlanner from './database/SprayPlanner';
 import Container from 'react-bootstrap/Container';
 
 function App() {
@@ -18,6 +19,7 @@ function App() {
             <Route exact path='/' element={<ProductManagement />} />
             <Route path='/database' element={<ProductManagement />} />
             <Route path='/history' element={<SprayHistory />} />
+            <Route path='/planner' element={<SprayPlanner />} />
             {/* Redirect any other unknown routes to home */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
