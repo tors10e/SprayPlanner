@@ -7,9 +7,9 @@ from core.config import Config
 class SprayHistoryRepository:
     def __init__(self, config: Config):
         self.config = config
-        # Only unique spray application columns are saved in spray_history table
+        # Only pesticide chemical application attributes are saved in spray_history table
         self.columns = [
-            "Spray #", "Date", "End Time", "Block ", "Pesticide", 
+            "Pesticide", 
             "Liters/Acre", "Dose/acre", "Dose per L @150 l", 
             "Calculated Dose", "Dose Units", "Actual Amt/acre", "Notes",
             "PHI Date", "REI_TIME"
@@ -30,13 +30,14 @@ class SprayHistoryRepository:
         conn = self._get_connection()
         cursor = conn.cursor()
         
+        # Load from normalized tables (INNER JOIN to spray_events)
         sql = """
         SELECT 
             h.id,
-            h."Spray #",
-            h."Date",
-            h."End Time",
-            h."Block ",
+            e."Spray #",
+            e."Date",
+            e."End Time",
+            e."Block ",
             h."Pesticide",
             h."Liters/Acre",
             h."Dose/acre",
@@ -57,8 +58,9 @@ class SprayHistoryRepository:
             p.min_rate as "Min Dose",
             p.max_rate as "Max Dose"
         FROM spray_history h
+        INNER JOIN spray_events e ON h.event_id = e.id
         LEFT JOIN products p ON h."Pesticide" = p."Product"
-        ORDER BY h.id DESC
+        ORDER BY e.id DESC, h.id ASC
         """
         
         cursor.execute(sql)
@@ -92,7 +94,7 @@ class SprayHistoryRepository:
                 max_dose=float(row["Max Dose"]) if pd.notna(row["Max Dose"]) else None,
                 dose_acre=float(row["Dose/acre"]) if pd.notna(row["Dose/acre"]) else None,
                 dose_per_l=float(row["Dose per L @150 l"]) if pd.notna(row["Dose per L @150 l"]) else None,
-                rate_units=str(row["Units"]) if pd.notna(row["Units"]) else "", # Rate Units mapped to product Units
+                rate_units=str(row["Units"]) if pd.notna(row["Units"]) else "",
                 calculated_dose=float(row["Calculated Dose"]) if pd.notna(row["Calculated Dose"]) else None,
                 dose_units=str(row["Dose Units"]) if pd.notna(row["Dose Units"]) else "",
                 actual_amt_acre=float(row["Actual Amt/acre"]) if pd.notna(row["Actual Amt/acre"]) else None,
@@ -103,7 +105,6 @@ class SprayHistoryRepository:
         return entries
 
     def _upsert_product_reference(self, cursor, data: Dict):
-        """Ensures the pesticide chemical exists in the products table prior to log entry insert."""
         p_name = data.get("Pesticide")
         if not p_name:
             return
@@ -140,50 +141,93 @@ class SprayHistoryRepository:
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        # 1. Upsert product reference first
-        self._upsert_product_reference(cursor, entry_data)
-        
-        # 2. Build insert for spray_history table
-        remapped_data = {self._clean_key(k): self._normalize_val(v) for k, v in entry_data.items() if k in self.columns}
-        
-        # Ensure all columns exist in data (default to None)
-        for col in self.columns:
-            cleaned = self._clean_key(col)
-            if cleaned not in remapped_data:
-                remapped_data[cleaned] = None
-        
-        columns_sql = ", ".join([f'"{c}"' for c in self.columns])
-        placeholders_sql = ", ".join([f"%({self._clean_key(c)})s" for c in self.columns])
-        
-        sql = f"INSERT INTO spray_history ({columns_sql}) VALUES ({placeholders_sql}) RETURNING id"
-        cursor.execute(sql, remapped_data)
-        new_id = cursor.fetchone()[0]
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return new_id
+        try:
+            # 1. Upsert product reference
+            self._upsert_product_reference(cursor, entry_data)
+            
+            # 2. Find or insert spray_event
+            spray_num = self._normalize_val(entry_data.get("Spray #"))
+            block = self._normalize_val(entry_data.get("Block "))
+            date = self._normalize_val(entry_data.get("Date"))
+            end_time = self._normalize_val(entry_data.get("End Time"))
+            
+            cursor.execute(
+                'SELECT id FROM spray_events WHERE "Spray #" IS NOT DISTINCT FROM %s AND "Block " IS NOT DISTINCT FROM %s AND "Date" IS NOT DISTINCT FROM %s AND "End Time" IS NOT DISTINCT FROM %s',
+                (spray_num, block, date, end_time)
+            )
+            row = cursor.fetchone()
+            if row:
+                event_id = row[0]
+            else:
+                cursor.execute(
+                    'INSERT INTO spray_events ("Spray #", "Block ", "Date", "End Time") VALUES (%s, %s, %s, %s) RETURNING id',
+                    (spray_num, block, date, end_time)
+                )
+                event_id = cursor.fetchone()[0]
+                
+            # 3. Insert spray_history record
+            remapped_data = {self._clean_key(k): self._normalize_val(v) for k, v in entry_data.items() if k in self.columns}
+            remapped_data['event_id'] = event_id
+            
+            for col in self.columns:
+                cleaned = self._clean_key(col)
+                if cleaned not in remapped_data:
+                    remapped_data[cleaned] = None
+                    
+            columns_sql = 'event_id, ' + ", ".join([f'"{c}"' for c in self.columns])
+            placeholders_sql = '%(event_id)s, ' + ", ".join([f"%({self._clean_key(c)})s" for c in self.columns])
+            
+            sql = f"INSERT INTO spray_history ({columns_sql}) VALUES ({placeholders_sql}) RETURNING id"
+            cursor.execute(sql, remapped_data)
+            new_id = cursor.fetchone()[0]
+            
+            conn.commit()
+            return new_id
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            cursor.close()
+            conn.close()
 
     def update_entry(self, entry_id: int, entry_data: Dict):
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        # 1. Upsert product reference first
-        self._upsert_product_reference(cursor, entry_data)
-        
-        # 2. Build update for spray_history table
-        update_keys = [k for k in entry_data.keys() if k in self.columns]
-        set_clause = ", ".join([f'"{col}" = %({self._clean_key(col)})s' for col in update_keys])
-        
-        remapped_data = {self._clean_key(k): self._normalize_val(v) for k, v in entry_data.items() if k in self.columns}
-        remapped_data['entry_id'] = entry_id
-        
-        sql = f"UPDATE spray_history SET {set_clause} WHERE id = %(entry_id)s"
-        cursor.execute(sql, remapped_data)
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
+        try:
+            self._upsert_product_reference(cursor, entry_data)
+            
+            cursor.execute("SELECT event_id FROM spray_history WHERE id = %s", (entry_id,))
+            row = cursor.fetchone()
+            if not row:
+                raise ValueError(f"History entry with id {entry_id} not found.")
+            event_id = row[0]
+            
+            spray_num = self._normalize_val(entry_data.get("Spray #"))
+            block = self._normalize_val(entry_data.get("Block "))
+            date = self._normalize_val(entry_data.get("Date"))
+            end_time = self._normalize_val(entry_data.get("End Time"))
+            
+            cursor.execute(
+                'UPDATE spray_events SET "Spray #" = %s, "Block " = %s, "Date" = %s, "End Time" = %s WHERE id = %s',
+                (spray_num, block, date, end_time, event_id)
+            )
+            
+            update_keys = [k for k in entry_data.keys() if k in self.columns]
+            if update_keys:
+                set_clause = ", ".join([f'"{col}" = %({self._clean_key(col)})s' for col in update_keys])
+                remapped_data = {self._clean_key(k): self._normalize_val(v) for k, v in entry_data.items() if k in self.columns}
+                remapped_data['entry_id'] = entry_id
+                sql = f"UPDATE spray_history SET {set_clause} WHERE id = %(entry_id)s"
+                cursor.execute(sql, remapped_data)
+                
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            cursor.close()
+            conn.close()
 
     def delete_entry(self, entry_id: int):
         conn = self._get_connection()
@@ -197,38 +241,65 @@ class SprayHistoryRepository:
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        columns_sql = ", ".join([f'"{c}"' for c in self.columns])
-        placeholders_sql = ", ".join([f"%({self._clean_key(c)})s" for c in self.columns])
-        sql = f"INSERT INTO spray_history ({columns_sql}) VALUES ({placeholders_sql})"
-        
+        event_map = {}
         count = 0
-        for entry_data in entries_list:
-            # 1. Upsert product first
-            self._upsert_product_reference(cursor, entry_data)
-            
-            # 2. Insert history record
-            remapped_data = {self._clean_key(k): self._normalize_val(v) for k, v in entry_data.items() if k in self.columns}
-            
-            # Fill missing columns
-            for col in self.columns:
-                cleaned = self._clean_key(col)
-                if cleaned not in remapped_data:
-                    remapped_data[cleaned] = None
+        
+        try:
+            for entry_data in entries_list:
+                spray_num = self._normalize_val(entry_data.get("Spray #"))
+                block = self._normalize_val(entry_data.get("Block "))
+                date = self._normalize_val(entry_data.get("Date"))
+                end_time = self._normalize_val(entry_data.get("End Time"))
+                
+                event_key = (spray_num, block, date, end_time)
+                if event_key in event_map:
+                    event_id = event_map[event_key]
+                else:
+                    cursor.execute(
+                        'SELECT id FROM spray_events WHERE "Spray #" IS NOT DISTINCT FROM %s AND "Block " IS NOT DISTINCT FROM %s AND "Date" IS NOT DISTINCT FROM %s AND "End Time" IS NOT DISTINCT FROM %s',
+                        (spray_num, block, date, end_time)
+                    )
+                    row = cursor.fetchone()
+                    if row:
+                        event_id = row[0]
+                    else:
+                        cursor.execute(
+                            'INSERT INTO spray_events ("Spray #", "Block ", "Date", "End Time") VALUES (%s, %s, %s, %s) RETURNING id',
+                            (spray_num, block, date, end_time)
+                        )
+                        event_id = cursor.fetchone()[0]
+                    event_map[event_key] = event_id
                     
-            cursor.execute(sql, remapped_data)
-            count += 1
-            
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return count
+                self._upsert_product_reference(cursor, entry_data)
+                
+                remapped_data = {self._clean_key(k): self._normalize_val(v) for k, v in entry_data.items() if k in self.columns}
+                remapped_data['event_id'] = event_id
+                
+                for col in self.columns:
+                    cleaned = self._clean_key(col)
+                    if cleaned not in remapped_data:
+                        remapped_data[cleaned] = None
+                        
+                columns_sql = 'event_id, ' + ", ".join([f'"{c}"' for c in self.columns])
+                placeholders_sql = '%(event_id)s, ' + ", ".join([f"%({self._clean_key(c)})s" for c in self.columns])
+                sql = f"INSERT INTO spray_history ({columns_sql}) VALUES ({placeholders_sql})"
+                
+                cursor.execute(sql, remapped_data)
+                count += 1
+                
+            conn.commit()
+            return count
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            cursor.close()
+            conn.close()
 
     def _clean_key(self, key: str) -> str:
-        """Cleans a key to be used as a placeholder name."""
         return key.replace(' ', '_').replace('#', 'num').replace('(', '').replace(')', '').replace('@', 'at').replace('/', '_')
 
     def _normalize_val(self, val):
-        """Standardizes empty values or NaNs to None for Postgres."""
         if pd.isna(val) or val == "" or val == "None" or val == "NA":
             return None
         return val

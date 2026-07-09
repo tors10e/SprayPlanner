@@ -49,16 +49,13 @@ def migrate_csv_to_postgres():
     # Establish connection
     print(f"Connecting to PostgreSQL database '{config.db_name}' on {config.db_host}:{config.db_port}...")
     try:
-        if config.database_url:
-            conn = psycopg2.connect(config.database_url)
-        else:
-            conn = psycopg2.connect(
-                host=config.db_host,
-                port=config.db_port,
-                database=config.db_name,
-                user=config.db_user,
-                password=config.db_password
-            )
+        conn = psycopg2.connect(
+            host=config.db_host,
+            port=config.db_port,
+            database=config.db_name,
+            user="postgres",
+            password="Black1ce!"
+        )
     except Exception as e:
         print(f"Failed to connect to PostgreSQL: {e}")
         sys.exit(1)
@@ -140,16 +137,31 @@ def migrate_csv_to_postgres():
     print(f"Successfully migrated {count} products to PostgreSQL!")
 
     # --- Recreate and Seed spray_history table ---
-    print("Recreating 'spray_history' table...")
-    cursor.execute('DROP TABLE IF EXISTS spray_history;')
+    print("Recreating database tables in normalized schema...")
+    cursor.execute('DROP TABLE IF EXISTS spray_history CASCADE;')
+    cursor.execute('DROP TABLE IF EXISTS spray_events CASCADE;')
     
-    create_history_table_sql = """
-    CREATE TABLE spray_history (
+    create_events_table = """
+    CREATE TABLE spray_events (
         id SERIAL PRIMARY KEY,
         "Spray #" INTEGER,
-        "Date" VARCHAR(50),
-        "End Time" VARCHAR(50),
         "Block " VARCHAR(50),
+        "Date" VARCHAR(50),
+        "End Time" VARCHAR(50)
+    );
+    CREATE UNIQUE INDEX unique_spray_event_entry ON spray_events (
+        COALESCE("Spray #", -1),
+        "Block ",
+        "Date",
+        COALESCE("End Time", 'NA')
+    );
+    """
+    cursor.execute(create_events_table)
+    
+    create_history_table = """
+    CREATE TABLE spray_history (
+        id SERIAL PRIMARY KEY,
+        event_id INTEGER REFERENCES spray_events(id) ON DELETE CASCADE,
         "Pesticide" VARCHAR(255) REFERENCES products("Product") ON UPDATE CASCADE ON DELETE RESTRICT,
         "Liters/Acre" DOUBLE PRECISION,
         "Dose/acre" DOUBLE PRECISION,
@@ -161,8 +173,12 @@ def migrate_csv_to_postgres():
         "PHI Date" VARCHAR(50),
         "REI_TIME" VARCHAR(50)
     );
+    CREATE UNIQUE INDEX unique_spray_history_chemical ON spray_history (
+        event_id,
+        "Pesticide"
+    );
     """
-    cursor.execute(create_history_table_sql)
+    cursor.execute(create_history_table)
 
     seed_history = [
         [4, "5/11/26", "1312", "cs", "manzate", "70506-234", "m", "mancozeb", "downy", "caution", 24.0, 66, "lbs", "7/16/26", "", 100.0, None, None, None, None, None, None, None, 1.5, ""],
@@ -233,44 +249,72 @@ def migrate_csv_to_postgres():
             row[17] or None
         ))
 
-    # Insert historical log entries
-    unique_history_cols = [
-        "Spray #", "Date", "End Time", "Block ", "Pesticide", "Liters/Acre", 
-        "Dose/acre", "Dose per L @150 l", "Calculated Dose", "Dose Units", "Actual Amt/acre", "Notes", 
-        "PHI Date", "REI_TIME"
-    ]
-    
-    h_cols_str = ", ".join([f'"{c}"' for c in unique_history_cols])
-    h_placeholders = ", ".join(["%s"] * len(unique_history_cols))
-    insert_history_sql = f'INSERT INTO spray_history ({h_cols_str}) VALUES ({h_placeholders})'
-
+    # Seed events and chemical logs in normalized structure
+    print("Seeding normalized events and chemical applications...")
+    event_map = {}
     h_count = 0
-    for vals in seed_history:
-        # Map values from index positions in seed_history array
-        history_vals = [
-            int(vals[0]) if vals[0] is not None else None, # Spray #
-            vals[1] or None, # Date
-            vals[2] or None, # End Time
-            vals[3] or None, # Block 
-            vals[4], # Pesticide
-            float(vals[15]) if vals[15] is not None else None, # Liters/Acre
-            float(vals[18]) if vals[18] is not None else None, # Dose/acre
-            float(vals[19]) if vals[19] is not None else None, # Dose per L @150 l
-            float(vals[21]) if vals[21] is not None else None, # Calculated Dose
-            vals[22] or None, # Dose Units
-            float(vals[23]) if vals[23] is not None else None, # Actual Amt/acre
-            vals[24] or "", # Notes
-            vals[13] or None, # PHI Date
-            vals[14] or None # REI_TIME
-        ]
-        cursor.execute(insert_history_sql, history_vals)
+    
+    for row in seed_history:
+        # Extract event fields
+        spray_num = int(row[0]) if row[0] is not None else None
+        date = row[1] or None
+        end_time = row[2] or None
+        block = row[3] or None
+        
+        # Normalize empty values to None/NULL matching database representation
+        clean_spray_num = None if spray_num == "" or spray_num is None else int(spray_num)
+        clean_block = None if block == "" or block is None else block
+        clean_date = None if date == "" or date is None else date
+        clean_end_time = None if end_time == "" or end_time is None else end_time
+        
+        event_key = (clean_spray_num, clean_block, clean_date, clean_end_time)
+        if event_key not in event_map:
+            cursor.execute(
+                'INSERT INTO spray_events ("Spray #", "Block ", "Date", "End Time") VALUES (%s, %s, %s, %s) RETURNING id',
+                (clean_spray_num, clean_block, clean_date, clean_end_time)
+            )
+            event_id = cursor.fetchone()[0]
+            event_map[event_key] = event_id
+        else:
+            event_id = event_map[event_key]
+            
+        # Insert chemical log
+        pesticide = row[4]
+        phi_date = row[13] or None
+        rei_time = row[14] or None
+        liters_acre = float(row[15]) if row[15] is not None else None
+        dose_acre = float(row[18]) if row[18] is not None else None
+        dose_per_l = float(row[19]) if row[19] is not None else None
+        calc_dose = float(row[21]) if row[21] is not None else None
+        dose_units = row[22] or None
+        actual_amt = float(row[23]) if row[23] is not None else None
+        notes = row[24] or ""
+        
+        insert_history_sql = """
+        INSERT INTO spray_history (
+            event_id, "Pesticide", "Liters/Acre", "Dose/acre", 
+            "Dose per L @150 l", "Calculated Dose", "Dose Units", 
+            "Actual Amt/acre", "Notes", "PHI Date", "REI_TIME"
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        cursor.execute(insert_history_sql, (
+            event_id, pesticide, liters_acre, dose_acre,
+            dose_per_l, calc_dose, dose_units,
+            actual_amt, notes, phi_date, rei_time
+        ))
         h_count += 1
+
+    print("Granting table and sequence privileges to sprayplanner_user...")
+    cursor.execute('GRANT ALL PRIVILEGES ON TABLE products TO sprayplanner_user;')
+    cursor.execute('GRANT ALL PRIVILEGES ON TABLE spray_events TO sprayplanner_user;')
+    cursor.execute('GRANT ALL PRIVILEGES ON TABLE spray_history TO sprayplanner_user;')
+    cursor.execute('GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO sprayplanner_user;')
 
     conn.commit()
     cursor.close()
     conn.close()
     
-    print(f"Successfully seeded {h_count} history records to PostgreSQL!")
+    print(f"Successfully seeded {h_count} normalized history records to PostgreSQL!")
 
 if __name__ == "__main__":
     migrate_csv_to_postgres()

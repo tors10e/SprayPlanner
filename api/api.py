@@ -207,47 +207,60 @@ def save_history_group():
         
         rows = data.get("rows", [])
         
+        # Normalize empty values to None/NULL
+        clean_orig_spray_number = None if original_spray_number == "" or original_spray_number is None else int(original_spray_number)
+        clean_orig_block = None if original_block == "" or original_block is None else original_block
+        clean_orig_date = None if original_date == "" or original_date is None else original_date
+        clean_orig_end_time = None if original_end_time == "" or original_end_time is None else original_end_time
+        
         # Start transactional block
         conn = history_repo._get_connection()
         cursor = conn.cursor()
         try:
-            # 1. Clean up old records for this specific block event
-            if original_block is not None and original_date is not None:
-                if original_spray_number is not None:
+            # 1. Find or create the event row in spray_events
+            if clean_orig_block is not None and clean_orig_date is not None:
+                cursor.execute(
+                    'SELECT id FROM spray_events WHERE "Spray #" IS NOT DISTINCT FROM %s AND "Block " IS NOT DISTINCT FROM %s AND "Date" IS NOT DISTINCT FROM %s AND "End Time" IS NOT DISTINCT FROM %s',
+                    (clean_orig_spray_number, clean_orig_block, clean_orig_date, clean_orig_end_time)
+                )
+                row = cursor.fetchone()
+                if row:
+                    event_id = row[0]
+                    # Update header details
                     cursor.execute(
-                        'DELETE FROM spray_history WHERE "Spray #" = %s AND "Block " = %s AND "Date" = %s AND "End Time" = %s', 
-                        (original_spray_number, original_block, original_date, original_end_time or "")
+                        'UPDATE spray_events SET "Spray #" = %s, "Block " = %s, "Date" = %s, "End Time" = %s WHERE id = %s',
+                        (spray_number, block, date, end_time, event_id)
                     )
+                    # Clear old chemicals
+                    cursor.execute('DELETE FROM spray_history WHERE event_id = %s', (event_id,))
                 else:
                     cursor.execute(
-                        'DELETE FROM spray_history WHERE "Spray #" IS NULL AND "Block " = %s AND "Date" = %s AND "End Time" = %s', 
-                        (original_block, original_date, original_end_time or "")
+                        'INSERT INTO spray_events ("Spray #", "Block ", "Date", "End Time") VALUES (%s, %s, %s, %s) RETURNING id',
+                        (spray_number, block, date, end_time)
                     )
+                    event_id = cursor.fetchone()[0]
             else:
-                # Delete individual edited/removed rows by IDs if applicable
-                row_ids = [r.get("id") for r in rows if r.get("id") is not None]
-                if row_ids:
-                    cursor.execute('DELETE FROM spray_history WHERE id IN %s', (tuple(row_ids),))
+                cursor.execute(
+                    'INSERT INTO spray_events ("Spray #", "Block ", "Date", "End Time") VALUES (%s, %s, %s, %s) RETURNING id',
+                    (spray_number, block, date, end_time)
+                )
+                event_id = cursor.fetchone()[0]
             
-            # 2. Insert new/updated rows
+            # 2. Insert new/updated rows in spray_history
             for row in rows:
-                row["Spray #"] = spray_number
-                row["Block "] = block
-                row["Date"] = date
-                row["End Time"] = end_time
-                
                 # Make sure the chemical product reference exists/is upserted
                 history_repo._upsert_product_reference(cursor, row)
                 
                 # Build insertion columns and placeholders
                 remapped_data = {history_repo._clean_key(k): history_repo._normalize_val(v) for k, v in row.items() if k in history_repo.columns}
+                remapped_data['event_id'] = event_id
                 for col in history_repo.columns:
                     cleaned = history_repo._clean_key(col)
                     if cleaned not in remapped_data:
                         remapped_data[cleaned] = None
                         
-                columns_sql = ", ".join([f'"{c}"' for c in history_repo.columns])
-                placeholders_sql = ", ".join([f"%({history_repo._clean_key(c)})s" for c in history_repo.columns])
+                columns_sql = "event_id, " + ", ".join([f'"{c}"' for c in history_repo.columns])
+                placeholders_sql = "%(event_id)s, " + ", ".join([f"%({history_repo._clean_key(c)})s" for c in history_repo.columns])
                 sql = f"INSERT INTO spray_history ({columns_sql}) VALUES ({placeholders_sql})"
                 
                 cursor.execute(sql, remapped_data)
@@ -273,19 +286,19 @@ def delete_history_event():
         date = data.get("date")
         end_time = data.get("end_time")
         
+        # Normalize empty values to None/NULL
+        clean_spray_number = None if spray_number == "" or spray_number is None else int(spray_number)
+        clean_block = None if block == "" or block is None else block
+        clean_date = None if date == "" or date is None else date
+        clean_end_time = None if end_time == "" or end_time is None else end_time
+        
         conn = history_repo._get_connection()
         cursor = conn.cursor()
         
-        if spray_number is not None:
-            cursor.execute(
-                'DELETE FROM spray_history WHERE "Spray #" = %s AND "Block " = %s AND "Date" = %s AND "End Time" = %s',
-                (spray_number, block, date, end_time or "")
-            )
-        else:
-            cursor.execute(
-                'DELETE FROM spray_history WHERE "Spray #" IS NULL AND "Block " = %s AND "Date" = %s AND "End Time" = %s',
-                (block, date, end_time or "")
-            )
+        cursor.execute(
+            'DELETE FROM spray_events WHERE "Spray #" IS NOT DISTINCT FROM %s AND "Block " IS NOT DISTINCT FROM %s AND "Date" IS NOT DISTINCT FROM %s AND "End Time" IS NOT DISTINCT FROM %s',
+            (clean_spray_number, clean_block, clean_date, clean_end_time)
+        )
             
         conn.commit()
         cursor.close()
@@ -293,6 +306,35 @@ def delete_history_event():
         return jsonify({'status': 'success'})
     except Exception as e:
         print(f"Error deleting history event: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/history/update_spray_number', methods=['POST'])
+def update_spray_number():
+    try:
+        data = request.json
+        old_number = data.get("old_number")
+        new_number = data.get("new_number")
+        
+        if old_number is None or new_number is None:
+            return jsonify({'status': 'error', 'message': 'Missing old_number or new_number'}), 400
+            
+        conn = history_repo._get_connection()
+        cursor = conn.cursor()
+        
+        clean_old = None if old_number == "" or old_number is None else int(old_number)
+        clean_new = None if new_number == "" or new_number is None else int(new_number)
+        
+        cursor.execute(
+            'UPDATE spray_events SET "Spray #" = %s WHERE "Spray #" IS NOT DISTINCT FROM %s',
+            (clean_new, clean_old)
+        )
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        print(f"Error updating spray number: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/planner/generate', methods=['POST'])

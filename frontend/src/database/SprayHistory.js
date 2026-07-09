@@ -270,6 +270,14 @@ const SprayHistory = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         
+        // Prevent duplicate chemicals in the same block spray event
+        const pesticides = formData.rows.map(r => r.Pesticide).filter(Boolean);
+        const hasDuplicates = pesticides.length !== new Set(pesticides).size;
+        if (hasDuplicates) {
+            alert("Duplicate chemicals found in the mix. Please remove the duplicate rows before saving.");
+            return;
+        }
+        
         const payload = {
             spray_number: formData.spray_number === "" ? null : Number(formData.spray_number),
             block: formData.block,
@@ -333,6 +341,31 @@ const SprayHistory = () => {
             } catch (error) {
                 console.error("Error deleting event:", error);
             }
+        }
+    };
+
+    const handleUpdateSprayNumber = async (oldNumber, newNumber) => {
+        if (!newNumber || isNaN(newNumber)) {
+            alert("Please enter a valid number.");
+            return;
+        }
+        try {
+            const response = await fetch(`${HISTORY_API}/update_spray_number`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    old_number: Number(oldNumber),
+                    new_number: Number(newNumber)
+                })
+            });
+            if (response.ok) {
+                fetchHistory();
+            } else {
+                const err = await response.text();
+                alert("Error updating spray number: " + err);
+            }
+        } catch (error) {
+            console.error("Error updating spray number:", error);
         }
     };
 
@@ -447,6 +480,7 @@ const SprayHistory = () => {
     };
 
     const groupedData = getGroupedHistory();
+    console.log("DEBUG [groupedData]:", groupedData);
 
     // Stats calculations
     const totalApplications = history.length;
@@ -523,7 +557,15 @@ const SprayHistory = () => {
                 ) : (
                     groupedData.groups.map(group => (
                         <div key={`spray-group-${group.sprayNumber}`} className="mb-5">
-                            <h3 className="text-primary mb-3 mt-4 border-bottom pb-2">Spray #{group.sprayNumber}</h3>
+                            <div className="border-bottom pb-2 mb-3 mt-4 d-flex align-items-center">
+                                <h3 className="text-primary m-0 d-inline-block">Spray #{group.sprayNumber}</h3>
+                                <Button variant="outline-primary" size="sm" className="ms-3 py-0 px-2 align-baseline" style={{ fontSize: '12px' }} onClick={() => {
+                                    const newNum = prompt(`Enter new Spray Number to renumber Spray #${group.sprayNumber}:`, group.sprayNumber);
+                                    if (newNum !== null && newNum.trim() !== "" && Number(newNum) !== group.sprayNumber) {
+                                        handleUpdateSprayNumber(group.sprayNumber, newNum);
+                                    }
+                                }}>Change #</Button>
+                            </div>
                             
                             {group.events.map(event => (
                                 <Card key={`block-event-${group.sprayNumber}-${event.key}`} className="mb-4 border shadow-sm w-100">
