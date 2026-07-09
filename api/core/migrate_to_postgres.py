@@ -297,7 +297,7 @@ def migrate_csv_to_postgres():
     CREATE TABLE block_events (
         id SERIAL PRIMARY KEY,
         event_id INTEGER REFERENCES spray_events(id) ON DELETE CASCADE,
-        "Block " VARCHAR(50),
+        "Block " VARCHAR(50) REFERENCES vineyard_blocks(block_code) ON UPDATE CASCADE ON DELETE RESTRICT,
         "Date" VARCHAR(50),
         "End Time" VARCHAR(50),
         "Liters/Acre" DOUBLE PRECISION

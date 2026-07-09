@@ -84,6 +84,7 @@ const SprayHistory = () => {
     const [showModal, setShowModal] = useState(false);
     const [currentId, setCurrentId] = useState(null); // stores composite block event name or null
     const [formData, setFormData] = useState({ ...EMPTY_HISTORY_FORM });
+    const [availableBlocks, setAvailableBlocks] = useState([]);
     
     // File upload state
     const [selectedFile, setSelectedFile] = useState(null);
@@ -92,6 +93,7 @@ const SprayHistory = () => {
     useEffect(() => {
         fetchHistory();
         fetchProducts();
+        fetchAvailableBlocks();
     }, []);
 
     const fetchHistory = async () => {
@@ -111,6 +113,19 @@ const SprayHistory = () => {
             setProducts(data);
         } catch (error) {
             console.error("Error fetching products:", error);
+        }
+    };
+
+    const fetchAvailableBlocks = async () => {
+        try {
+            const url = window.location.hostname === 'localhost' ? 'http://localhost:5001/api/blocks' : '/api/blocks';
+            const response = await fetch(url);
+            if (response.ok) {
+                const data = await response.json();
+                setAvailableBlocks(data);
+            }
+        } catch (error) {
+            console.error("Error fetching available blocks:", error);
         }
     };
 
@@ -731,7 +746,14 @@ const SprayHistory = () => {
                                     <Col md={2}>
                                         <Form.Group className="mb-3">
                                             <Form.Label>Block Code</Form.Label>
-                                            <Form.Control type="text" placeholder="e.g. cs, pm, tr" name="block" value={formData.block} onChange={handleHeaderChange} required />
+                                            <Form.Select name="block" value={formData.block} onChange={handleHeaderChange} required>
+                                                <option value="">-- Select Block --</option>
+                                                {availableBlocks.map(b => (
+                                                    <option key={b.block_code} value={b.block_code}>
+                                                        {b.block_code.toUpperCase()} ({b.varieties})
+                                                    </option>
+                                                ))}
+                                            </Form.Select>
                                         </Form.Group>
                                     </Col>
                                     <Col md={2}>

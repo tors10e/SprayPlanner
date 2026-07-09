@@ -14,7 +14,7 @@ def test_history_crud_flow(history_repo):
         "Spray #": 99,
         "Date": "08/15/26",
         "End Time": "1200",
-        "Block ": "test_block",
+        "Block ": "cs",
         "Pesticide": "Test_Pesticide_Log",
         "EPA No": "123-45",
         "Group": "test_group",
@@ -49,7 +49,7 @@ def test_history_crud_flow(history_repo):
     assert inserted.spray_number == 99
     assert inserted.date == "08/15/26"
     assert inserted.end_time == "1200"
-    assert inserted.block == "test_block"
+    assert inserted.block == "cs"
     assert inserted.pesticide == "Test_Pesticide_Log"
     assert inserted.rei_h == 4.0
     assert inserted.phi_d == 5
@@ -60,7 +60,7 @@ def test_history_crud_flow(history_repo):
         "Spray #": 99,
         "Date": "08/15/26",
         "End Time": "1300",
-        "Block ": "new_test_block",
+        "Block ": "tr",
         "Pesticide": "Test_Pesticide_Log",
         "EPA No": "123-45",
         "Group": "test_group",
@@ -91,7 +91,7 @@ def test_history_crud_flow(history_repo):
     
     assert updated is not None
     assert updated.end_time == "1300"
-    assert updated.block == "new_test_block"
+    assert updated.block == "tr"
     assert updated.signal_word == "warning"
     assert updated.rei_h == 8.0
     assert updated.phi_d == 10
