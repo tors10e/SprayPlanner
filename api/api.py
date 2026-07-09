@@ -541,6 +541,134 @@ def generate_spray_plan():
         print(f"Error generating spray plan: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+@app.route('/api/blocks', methods=['GET'])
+def get_vineyard_blocks():
+    try:
+        conn = repo._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT block_code, varieties, acres, vine_spacing, row_spacing, trellis_type, rootstock FROM vineyard_blocks ORDER BY block_code')
+        blocks = cursor.fetchall()
+        
+        result = []
+        for b in blocks:
+            bcode = b[0]
+            cursor.execute('SELECT row_number, row_length FROM vineyard_rows WHERE block_code = %s ORDER BY row_number', (bcode,))
+            rows = [{"row_number": r[0], "row_length": r[1]} for r in cursor.fetchall()]
+            
+            result.append({
+                "block_code": b[0],
+                "varieties": b[1],
+                "acres": b[2],
+                "vine_spacing": b[3],
+                "row_spacing": b[4],
+                "trellis_type": b[5],
+                "rootstock": b[6],
+                "rows": rows
+            })
+        
+        cursor.close()
+        conn.close()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/blocks', methods=['POST'])
+def add_vineyard_block():
+    try:
+        data = request.json
+        bcode = data.get("block_code")
+        if not bcode:
+            return jsonify({'status': 'error', 'message': 'Block code is required'}), 400
+            
+        conn = repo._get_connection()
+        cursor = conn.cursor()
+        
+        # Check duplicate block code
+        cursor.execute('SELECT block_code FROM vineyard_blocks WHERE LOWER(block_code) = LOWER(%s)', (bcode,))
+        if cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({'status': 'error', 'message': f"Block '{bcode}' already exists"}), 400
+
+        cursor.execute(
+            'INSERT INTO vineyard_blocks (block_code, varieties, acres, vine_spacing, row_spacing, trellis_type, rootstock) VALUES (%s, %s, %s, %s, %s, %s, %s)',
+            (
+                bcode,
+                data.get("varieties"),
+                data.get("acres"),
+                data.get("vine_spacing"),
+                data.get("row_spacing"),
+                data.get("trellis_type"),
+                data.get("rootstock")
+            )
+        )
+        
+        rows = data.get("rows", [])
+        for r in rows:
+            cursor.execute(
+                'INSERT INTO vineyard_rows (block_code, row_number, row_length) VALUES (%s, %s, %s)',
+                (bcode, r.get("row_number"), r.get("row_length"))
+            )
+            
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/blocks/<block_code>', methods=['PUT'])
+def update_vineyard_block(block_code):
+    try:
+        data = request.json
+        new_bcode = data.get("block_code", block_code)
+        
+        conn = repo._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            'UPDATE vineyard_blocks SET block_code=%s, varieties=%s, acres=%s, vine_spacing=%s, row_spacing=%s, trellis_type=%s, rootstock=%s WHERE block_code=%s',
+            (
+                new_bcode,
+                data.get("varieties"),
+                data.get("acres"),
+                data.get("vine_spacing"),
+                data.get("row_spacing"),
+                data.get("trellis_type"),
+                data.get("rootstock"),
+                block_code
+            )
+        )
+        
+        cursor.execute('DELETE FROM vineyard_rows WHERE block_code = %s', (new_bcode,))
+        rows = data.get("rows", [])
+        for r in rows:
+            cursor.execute(
+                'INSERT INTO vineyard_rows (block_code, row_number, row_length) VALUES (%s, %s, %s)',
+                (new_bcode, r.get("row_number"), r.get("row_length"))
+            )
+            
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/blocks/<block_code>', methods=['DELETE'])
+def delete_vineyard_block(block_code):
+    try:
+        conn = repo._get_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM vineyard_blocks WHERE block_code = %s', (block_code,))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 if __name__ == '__main__':
     app.run(debug=True, port=5001)
 

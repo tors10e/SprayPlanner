@@ -10,6 +10,7 @@ import ProductManagement from './database/ProductManagement';
 import SprayHistory from './database/SprayHistory';
 import SprayPlanner from './database/SprayPlanner';
 import SprayReports from './database/SprayReports';
+import VineyardBlocks from './database/VineyardBlocks';
 import Container from 'react-bootstrap/Container';
 
 function App() {
@@ -22,6 +23,7 @@ function App() {
             <Route path='/history' element={<SprayHistory />} />
             <Route path='/planner' element={<SprayPlanner />} />
             <Route path='/reports' element={<SprayReports />} />
+            <Route path='/vineyard-blocks' element={<VineyardBlocks />} />
             {/* Redirect any other unknown routes to home */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

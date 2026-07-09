@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import psycopg2
 import pandas as pd
 from config import Config
@@ -61,6 +62,52 @@ def migrate_csv_to_postgres():
         sys.exit(1)
         
     cursor = conn.cursor()
+
+    # Try to load all existing tables to preserve them as seed data
+    existing_data = {}
+    
+    tables_to_preserve = [
+        "volume_units",
+        "products",
+        "vineyard_blocks",
+        "vineyard_rows",
+        "spray_events",
+        "block_events",
+        "spray_history"
+    ]
+    
+    try:
+        for table in tables_to_preserve:
+            cursor.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = %s)", (table,))
+            if cursor.fetchone()[0]:
+                cursor.execute(f"SELECT column_name FROM information_schema.columns WHERE table_name = '{table}' ORDER BY ordinal_position")
+                cols = [r[0] for r in cursor.fetchall()]
+                cursor.execute(f"SELECT * FROM {table}")
+                rows = cursor.fetchall()
+                existing_data[table] = []
+                for r in rows:
+                    row_dict = {}
+                    for col, val in zip(cols, r):
+                        if hasattr(val, 'isoformat'):
+                            val = val.isoformat()
+                        elif hasattr(val, 'strftime'):
+                            val = str(val)
+                        row_dict[col] = val
+                    existing_data[table].append(row_dict)
+        if existing_data.get("spray_events"):
+            print(f"Successfully loaded {len(existing_data['spray_events'])} existing spray events to preserve.")
+    except Exception as e:
+        print("Warning: Could not read existing database state:", e)
+
+    # Load seed file if we don't have database data in memory
+    seed_file = os.path.join(os.path.dirname(__file__), "db_seed_data.json")
+    if not existing_data.get("spray_events") and os.path.exists(seed_file):
+        print(f"No active database records found to preserve. Loading seed from '{seed_file}'...")
+        try:
+            with open(seed_file, "r") as f:
+                existing_data = json.load(f)
+        except Exception as e:
+            print("Warning: Could not read seed file:", e)
     
     # Recreate the volume_units lookup table
     print("Recreating 'volume_units' table...")
@@ -150,111 +197,93 @@ def migrate_csv_to_postgres():
         vals += [None, None, None, None, False, False, False, False, None, None, None, None, None]
         cursor.execute(insert_sql, vals)
         count += 1
-        
     print(f"Successfully migrated {count} products to PostgreSQL!")
 
-    # Try to load existing history entries to preserve them as seed data
-    existing_entries = []
-    try:
-        cursor.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'block_events')")
-        block_events_exists = cursor.fetchone()[0]
-        cursor.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'spray_history')")
-        history_exists = cursor.fetchone()[0]
+    # Restore products from previous state/seed to avoid foreign key errors on custom products
+    if "products" in existing_data and existing_data["products"]:
+        print(f"Restoring {len(existing_data['products'])} products from previous state/seed...")
+        for p in existing_data["products"]:
+            u = p.get("units")
+            if u:
+                cursor.execute('INSERT INTO volume_units (unit) VALUES (%s) ON CONFLICT DO NOTHING;', (u,))
+                
+        cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'products' ORDER BY ordinal_position")
+        cols = [r[0] for r in cursor.fetchall()]
+        cols_str = ", ".join([f'"{c}"' for c in cols])
+        placeholders = ", ".join(["%s"] * len(cols))
+        insert_prod_sql = f'INSERT INTO products ({cols_str}) VALUES ({placeholders}) ON CONFLICT ("Product") DO NOTHING;'
         
-        if block_events_exists and history_exists:
-            print("Found 3-table layout data. Reading to preserve...")
-            cursor.execute("""
-                SELECT 
-                    e."Spray #", b."Date", b."End Time", b."Block ",
-                    h."Pesticide", b."Liters/Acre", h."Dose/acre", 
-                    h."Dose per L @150 l", h."Calculated Dose", h."Dose Units", 
-                    h."Notes", h."PHI Date", h."REI_TIME",
-                    p."EPA No", p."FRAC", p."Active Ingredient", p."Singal Word",
-                    p.rei, p.phi, p.units, p.min_rate, p.max_rate
-                FROM spray_history h
-                INNER JOIN block_events b ON h.block_event_id = b.id
-                INNER JOIN spray_events e ON b.event_id = e.id
-                LEFT JOIN products p ON h."Pesticide" = p."Product"
-            """)
-            rows = cursor.fetchall()
-        elif history_exists:
-            print("Found 2-table layout data. Reading to preserve...")
-            cursor.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'spray_events')")
-            events_exists = cursor.fetchone()[0]
-            if events_exists:
-                cursor.execute("SELECT COLUMN_NAME FROM information_schema.columns WHERE table_name = 'spray_history' AND column_name = 'Liters/Acre'")
-                water_in_history = cursor.fetchone() is not None
-                if water_in_history:
-                    cursor.execute("""
-                        SELECT 
-                            e."Spray #", e."Date", e."End Time", e."Block ",
-                            h."Pesticide", h."Liters/Acre", h."Dose/acre", 
-                            h."Dose per L @150 l", h."Calculated Dose", h."Dose Units", 
-                            h."Notes", h."PHI Date", h."REI_TIME",
-                            p."EPA No", p."FRAC", p."Active Ingredient", p."Singal Word",
-                            p.rei, p.phi, p.units, p.min_rate, p.max_rate
-                        FROM spray_history h
-                        INNER JOIN spray_events e ON h.event_id = e.id
-                        LEFT JOIN products p ON h."Pesticide" = p."Product"
-                    """)
-                else:
-                    cursor.execute("""
-                        SELECT 
-                            e."Spray #", e."Date", e."End Time", e."Block ",
-                            h."Pesticide", e."Liters/Acre", h."Dose/acre", 
-                            h."Dose per L @150 l", h."Calculated Dose", h."Dose Units", 
-                            h."Notes", h."PHI Date", h."REI_TIME",
-                            p."EPA No", p."FRAC", p."Active Ingredient", p."Singal Word",
-                            p.rei, p.phi, p.units, p.min_rate, p.max_rate
-                        FROM spray_history h
-                        INNER JOIN spray_events e ON h.event_id = e.id
-                        LEFT JOIN products p ON h."Pesticide" = p."Product"
-                    """)
-                rows = cursor.fetchall()
-            else:
-                rows = []
-        else:
-            rows = []
-            
-        for r in rows:
-            existing_entries.append([
-                r[0], # Spray #
-                r[1], # Date
-                r[2], # End Time
-                r[3], # Block
-                r[4], # Pesticide
-                r[13], # EPA No
-                r[14], # FRAC
-                r[15], # Active Ingredient
-                None, # Primary Disease
-                r[16], # Signal Word
-                r[17], # rei
-                r[18], # phi
-                r[19], # units
-                r[11], # PHI Date
-                r[12], # REI_TIME
-                r[5], # Liters/Acre
-                r[20], # Min Dose
-                r[21], # Max Dose
-                r[6], # Dose/acre
-                r[7], # Dose per L
-                r[19], # Rate Units
-                r[8], # Calculated Dose
-                r[9], # Dose Units
-                None, # Actual Amt (deleted)
-                r[10] # Notes
-            ])
-        if rows:
-            print(f"Successfully loaded {len(existing_entries)} records to preserve.")
-    except Exception as e:
-        print("Warning: Could not read existing history data:", e)
+        for p in existing_data["products"]:
+            vals = [p.get(c) for c in cols]
+            cursor.execute(insert_prod_sql, vals)
 
     # --- Recreate database tables in normalized 3-table schema ---
     print("Recreating database tables in normalized 3-table schema...")
+    cursor.execute('DROP TABLE IF EXISTS vineyard_rows CASCADE;')
+    cursor.execute('DROP TABLE IF EXISTS vineyard_blocks CASCADE;')
     cursor.execute('DROP TABLE IF EXISTS spray_history CASCADE;')
     cursor.execute('DROP TABLE IF EXISTS block_events CASCADE;')
     cursor.execute('DROP TABLE IF EXISTS spray_events CASCADE;')
+
+    create_vineyard_blocks_table = """
+    CREATE TABLE vineyard_blocks (
+        block_code VARCHAR(50) PRIMARY KEY,
+        varieties VARCHAR(255),
+        acres DOUBLE PRECISION,
+        vine_spacing DOUBLE PRECISION,
+        row_spacing DOUBLE PRECISION,
+        trellis_type VARCHAR(100),
+        rootstock VARCHAR(100)
+    );
+    """
+    cursor.execute(create_vineyard_blocks_table)
     
+    create_vineyard_rows_table = """
+    CREATE TABLE vineyard_rows (
+        id SERIAL PRIMARY KEY,
+        block_code VARCHAR(50) REFERENCES vineyard_blocks(block_code) ON DELETE CASCADE,
+        row_number INTEGER,
+        row_length DOUBLE PRECISION,
+        UNIQUE(block_code, row_number)
+    );
+    """
+    cursor.execute(create_vineyard_rows_table)
+
+    # Seed vineyard blocks and rows
+    if "vineyard_blocks" in existing_data and existing_data["vineyard_blocks"]:
+        print(f"Restoring {len(existing_data['vineyard_blocks'])} vineyard blocks...")
+        for b in existing_data["vineyard_blocks"]:
+            cursor.execute(
+                'INSERT INTO vineyard_blocks (block_code, varieties, acres, vine_spacing, row_spacing, trellis_type, rootstock) VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (block_code) DO NOTHING;',
+                (b["block_code"], b["varieties"], b["acres"], b["vine_spacing"], b["row_spacing"], b["trellis_type"], b["rootstock"])
+            )
+        if "vineyard_rows" in existing_data and existing_data["vineyard_rows"]:
+            print(f"Restoring {len(existing_data['vineyard_rows'])} vineyard rows...")
+            for r in existing_data["vineyard_rows"]:
+                cursor.execute(
+                    'INSERT INTO vineyard_rows (id, block_code, row_number, row_length) VALUES (%s, %s, %s, %s) ON CONFLICT (block_code, row_number) DO NOTHING;',
+                    (r.get("id"), r["block_code"], r["row_number"], r["row_length"])
+                )
+            cursor.execute("SELECT setval('vineyard_rows_id_seq', COALESCE((SELECT MAX(id)+1 FROM vineyard_rows), 1), false)")
+    else:
+        print("Seeding with default vineyard blocks and rows...")
+        default_blocks = [
+            ("cs", "Cabernet Sauvignon", 1.0, 6.0, 9.0, "VSP", "3309C"),
+            ("pm", "Pinot Meunier", 1.0, 6.0, 9.0, "VSP", "101-14"),
+            ("tr", "Traminette", 1.0, 6.0, 9.0, "High Wire", "Own"),
+            ("ch", "Chardonnay", 1.0, 6.0, 9.0, "VSP", "3309C")
+        ]
+        for bcode, var, ac, vs, rs, tr, rs_stock in default_blocks:
+            cursor.execute(
+                'INSERT INTO vineyard_blocks (block_code, varieties, acres, vine_spacing, row_spacing, trellis_type, rootstock) VALUES (%s, %s, %s, %s, %s, %s, %s);',
+                (bcode, var, ac, vs, rs, tr, rs_stock)
+            )
+            for rnum in range(1, 11):
+                cursor.execute(
+                    'INSERT INTO vineyard_rows (block_code, row_number, row_length) VALUES (%s, %s, %s);',
+                    (bcode, rnum, 300.0)
+                )
+
     create_spray_events_table = """
     CREATE TABLE spray_events (
         id SERIAL PRIMARY KEY,
@@ -297,9 +326,31 @@ def migrate_csv_to_postgres():
     """
     cursor.execute(create_history_table)
 
-    if existing_entries:
-        seed_history = existing_entries
-        print(f"Using {len(seed_history)} existing database records as seed data.")
+    if "spray_events" in existing_data and existing_data["spray_events"]:
+        print(f"Restoring {len(existing_data['spray_events'])} spray events...")
+        for e in existing_data["spray_events"]:
+            cursor.execute('INSERT INTO spray_events (id, "Spray #") VALUES (%s, %s) ON CONFLICT (id) DO NOTHING;', (e["id"], e["Spray #"]))
+        cursor.execute("SELECT setval('spray_events_id_seq', COALESCE((SELECT MAX(id)+1 FROM spray_events), 1), false)")
+        
+        if "block_events" in existing_data and existing_data["block_events"]:
+            print(f"Restoring {len(existing_data['block_events'])} block events...")
+            for b in existing_data["block_events"]:
+                cursor.execute(
+                    'INSERT INTO block_events (id, event_id, "Block ", "Date", "End Time", "Liters/Acre") VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING;',
+                    (b["id"], b["event_id"], b["Block "], b["Date"], b["End Time"], b["Liters/Acre"])
+                )
+            cursor.execute("SELECT setval('block_events_id_seq', COALESCE((SELECT MAX(id)+1 FROM block_events), 1), false)")
+            
+        if "spray_history" in existing_data and existing_data["spray_history"]:
+            print(f"Restoring {len(existing_data['spray_history'])} chemical application logs...")
+            h_count = 0
+            for h in existing_data["spray_history"]:
+                cursor.execute(
+                    'INSERT INTO spray_history (id, block_event_id, "Pesticide", "Dose/acre", "Dose per L @150 l", "Calculated Dose", "Dose Units", "Notes", "PHI Date", "REI_TIME") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING;',
+                    (h["id"], h["block_event_id"], h["Pesticide"], h["Dose/acre"], h["Dose per L @150 l"], h["Calculated Dose"], h["Dose Units"], h["Notes"], h["PHI Date"], h["REI_TIME"])
+                )
+                h_count += 1
+            cursor.execute("SELECT setval('spray_history_id_seq', COALESCE((SELECT MAX(id)+1 FROM spray_history), 1), false)")
     else:
         seed_history = [
             [4, "5/11/26", "1312", "cs", "manzate", "70506-234", "m", "mancozeb", "downy", "caution", 24.0, 66, "lbs", "7/16/26", "", 100.0, None, None, None, None, None, None, None, 1.5, ""],
@@ -336,118 +387,120 @@ def migrate_csv_to_postgres():
         ]
         print("No existing database data found. Seeding with fallback default records.")
 
-    # UPSERT chemical products first to fulfill foreign key references
-    print("Upserting seed products from history...")
-    sql_product_upsert = """
-    INSERT INTO products ("Product", "EPA No", "FRAC", "Active Ingredient", "Primary Disease", "Singal Word", "rei", "phi", "units", "min_rate", "max_rate")
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    ON CONFLICT ("Product") DO UPDATE SET
-        "EPA No" = COALESCE(EXCLUDED."EPA No", products."EPA No"),
-        "FRAC" = COALESCE(EXCLUDED."FRAC", products."FRAC"),
-        "Active Ingredient" = COALESCE(EXCLUDED."Active Ingredient", products."Active Ingredient"),
-        "Singal Word" = COALESCE(EXCLUDED."Singal Word", products."Singal Word"),
-        "rei" = COALESCE(EXCLUDED."rei", products."rei"),
-        "phi" = COALESCE(EXCLUDED."phi", products."phi"),
-        "units" = COALESCE(EXCLUDED."units", products."units"),
-        "min_rate" = COALESCE(EXCLUDED."min_rate", products."min_rate"),
-        "max_rate" = COALESCE(EXCLUDED."max_rate", products."max_rate")
-    """
-    
-    for row in seed_history:
-        p_name = row[4]
-        if not p_name:
-            continue
-        cursor.execute(sql_product_upsert, (
-            p_name,
-            row[5] or None,
-            row[6] or None,
-            row[7] or None,
-            row[8] or None,
-            row[9] or None,
-            int(row[10]) if row[10] is not None and str(row[10]).strip() != "" else None,
-            int(row[11]) if row[11] is not None and str(row[11]).strip() != "" else None,
-            row[12] or None,
-            row[16] or None,
-            row[17] or None
-        ))
+        # UPSERT chemical products first to fulfill foreign key references
+        print("Upserting seed products from history...")
+        sql_product_upsert = """
+        INSERT INTO products ("Product", "EPA No", "FRAC", "Active Ingredient", "Primary Disease", "Singal Word", "rei", "phi", "units", "min_rate", "max_rate")
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT ("Product") DO UPDATE SET
+            "EPA No" = COALESCE(EXCLUDED."EPA No", products."EPA No"),
+            "FRAC" = COALESCE(EXCLUDED."FRAC", products."FRAC"),
+            "Active Ingredient" = COALESCE(EXCLUDED."Active Ingredient", products."Active Ingredient"),
+            "Singal Word" = COALESCE(EXCLUDED."Singal Word", products."Singal Word"),
+            "rei" = COALESCE(EXCLUDED."rei", products."rei"),
+            "phi" = COALESCE(EXCLUDED."phi", products."phi"),
+            "units" = COALESCE(EXCLUDED."units", products."units"),
+            "min_rate" = COALESCE(EXCLUDED."min_rate", products."min_rate"),
+            "max_rate" = COALESCE(EXCLUDED."max_rate", products."max_rate")
+        """
+        
+        for row in seed_history:
+            p_name = row[4]
+            if not p_name:
+                continue
+            cursor.execute(sql_product_upsert, (
+                p_name,
+                row[5] or None,
+                row[6] or None,
+                row[7] or None,
+                row[8] or None,
+                row[9] or None,
+                int(row[10]) if row[10] is not None and str(row[10]).strip() != "" else None,
+                int(row[11]) if row[11] is not None and str(row[11]).strip() != "" else None,
+                row[12] or None,
+                row[16] or None,
+                row[17] or None
+            ))
 
-    # Seed events and chemical logs in normalized 3-table structure
-    print("Seeding normalized events and chemical applications...")
-    spray_event_map = {}
-    block_event_map = {}
-    h_count = 0
-    
-    for row in seed_history:
-        # Extract fields
-        spray_num = int(row[0]) if row[0] is not None and str(row[0]).strip() != "" else None
-        date = row[1] or None
-        end_time = row[2] or None
-        block = row[3] or None
-        liters_acre = float(row[15]) if row[15] is not None and str(row[15]).strip() != "" else None
+        # Seed events and chemical logs in normalized 3-table structure
+        print("Seeding normalized events and chemical applications...")
+        spray_event_map = {}
+        block_event_map = {}
+        h_count = 0
         
-        # Normalize empty values
-        clean_spray_num = None if spray_num == "" or spray_num is None else int(spray_num)
-        clean_block = None if block == "" or block is None else block
-        clean_date = None if date == "" or date is None else date
-        clean_end_time = None if end_time == "" or end_time is None else end_time
-        
-        # 1. Get parent spray_event ID
-        if clean_spray_num is not None:
-            if clean_spray_num not in spray_event_map:
+        for row in seed_history:
+            # Extract fields
+            spray_num = int(row[0]) if row[0] is not None and str(row[0]).strip() != "" else None
+            date = row[1] or None
+            end_time = row[2] or None
+            block = row[3] or None
+            liters_acre = float(row[15]) if row[15] is not None and str(row[15]).strip() != "" else None
+            
+            # Normalize empty values
+            clean_spray_num = None if spray_num == "" or spray_num is None else int(spray_num)
+            clean_block = None if block == "" or block is None else block
+            clean_date = None if date == "" or date is None else date
+            clean_end_time = None if end_time == "" or end_time is None else end_time
+            
+            # 1. Get parent spray_event ID
+            if clean_spray_num is not None:
+                if clean_spray_num not in spray_event_map:
+                    cursor.execute(
+                        'INSERT INTO spray_events ("Spray #") VALUES (%s) RETURNING id',
+                        (clean_spray_num,)
+                    )
+                    event_id = cursor.fetchone()[0]
+                    spray_event_map[clean_spray_num] = event_id
+                else:
+                    event_id = spray_event_map[clean_spray_num]
+            else:
+                # Unscheduled: Create a new parent event row
                 cursor.execute(
-                    'INSERT INTO spray_events ("Spray #") VALUES (%s) RETURNING id',
-                    (clean_spray_num,)
+                    'INSERT INTO spray_events ("Spray #") VALUES (NULL) RETURNING id'
                 )
                 event_id = cursor.fetchone()[0]
-                spray_event_map[clean_spray_num] = event_id
+                
+            # 2. Get child block_event ID
+            block_key = (event_id, clean_block)
+            if block_key not in block_event_map:
+                cursor.execute(
+                    'INSERT INTO block_events (event_id, "Block ", "Date", "End Time", "Liters/Acre") VALUES (%s, %s, %s, %s, %s) RETURNING id',
+                    (event_id, clean_block, clean_date, clean_end_time, liters_acre)
+                )
+                block_event_id = cursor.fetchone()[0]
+                block_event_map[block_key] = block_event_id
             else:
-                event_id = spray_event_map[clean_spray_num]
-        else:
-            # Unscheduled: Create a new parent event row
-            cursor.execute(
-                'INSERT INTO spray_events ("Spray #") VALUES (NULL) RETURNING id'
-            )
-            event_id = cursor.fetchone()[0]
+                block_event_id = block_event_map[block_key]
+                
+            # Insert chemical log
+            pesticide = row[4]
+            phi_date = row[13] or None
+            rei_time = row[14] or None
+            dose_acre = float(row[18]) if row[18] is not None and str(row[18]).strip() != "" else None
+            dose_per_l = float(row[19]) if row[19] is not None and str(row[19]).strip() != "" else None
+            calc_dose = float(row[21]) if row[21] is not None and str(row[21]).strip() != "" else None
+            dose_units = row[22] or None
+            notes = row[24] or ""
             
-        # 2. Get child block_event ID
-        block_key = (event_id, clean_block)
-        if block_key not in block_event_map:
-            cursor.execute(
-                'INSERT INTO block_events (event_id, "Block ", "Date", "End Time", "Liters/Acre") VALUES (%s, %s, %s, %s, %s) RETURNING id',
-                (event_id, clean_block, clean_date, clean_end_time, liters_acre)
-            )
-            block_event_id = cursor.fetchone()[0]
-            block_event_map[block_key] = block_event_id
-        else:
-            block_event_id = block_event_map[block_key]
-            
-        # Insert chemical log
-        pesticide = row[4]
-        phi_date = row[13] or None
-        rei_time = row[14] or None
-        dose_acre = float(row[18]) if row[18] is not None and str(row[18]).strip() != "" else None
-        dose_per_l = float(row[19]) if row[19] is not None and str(row[19]).strip() != "" else None
-        calc_dose = float(row[21]) if row[21] is not None and str(row[21]).strip() != "" else None
-        dose_units = row[22] or None
-        notes = row[24] or ""
-        
-        insert_history_sql = """
-        INSERT INTO spray_history (
-            block_event_id, "Pesticide", "Dose/acre", 
-            "Dose per L @150 l", "Calculated Dose", "Dose Units", 
-            "Notes", "PHI Date", "REI_TIME"
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """
-        cursor.execute(insert_history_sql, (
-            block_event_id, pesticide, dose_acre,
-            dose_per_l, calc_dose, dose_units,
-            notes, phi_date, rei_time
-        ))
-        h_count += 1
+            insert_history_sql = """
+            INSERT INTO spray_history (
+                block_event_id, "Pesticide", "Dose/acre", 
+                "Dose per L @150 l", "Calculated Dose", "Dose Units", 
+                "Notes", "PHI Date", "REI_TIME"
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            cursor.execute(insert_history_sql, (
+                block_event_id, pesticide, dose_acre,
+                dose_per_l, calc_dose, dose_units,
+                notes, phi_date, rei_time
+            ))
+            h_count += 1
 
     print("Granting table and sequence privileges to sprayplanner_user...")
     cursor.execute('GRANT ALL PRIVILEGES ON TABLE volume_units TO sprayplanner_user;')
     cursor.execute('GRANT ALL PRIVILEGES ON TABLE products TO sprayplanner_user;')
+    cursor.execute('GRANT ALL PRIVILEGES ON TABLE vineyard_blocks TO sprayplanner_user;')
+    cursor.execute('GRANT ALL PRIVILEGES ON TABLE vineyard_rows TO sprayplanner_user;')
     cursor.execute('GRANT ALL PRIVILEGES ON TABLE spray_events TO sprayplanner_user;')
     cursor.execute('GRANT ALL PRIVILEGES ON TABLE block_events TO sprayplanner_user;')
     cursor.execute('GRANT ALL PRIVILEGES ON TABLE spray_history TO sprayplanner_user;')

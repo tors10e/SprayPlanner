@@ -180,3 +180,45 @@ def test_case_insensitive_product_uniqueness(repo):
     repo.delete_product(p1)
     repo.delete_product(p3)
 
+def test_vineyard_blocks_crud(repo):
+    conn = repo._get_connection()
+    cursor = conn.cursor()
+    
+    # 1. Cleanup test block if exists
+    cursor.execute("DELETE FROM vineyard_blocks WHERE block_code = %s", ("test_b1",))
+    conn.commit()
+    
+    # 2. Insert block
+    cursor.execute(
+        "INSERT INTO vineyard_blocks (block_code, varieties, acres, vine_spacing, row_spacing, trellis_type, rootstock) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        ("test_b1", "Test Merlot", 2.5, 6.0, 9.0, "VSP", "3309C")
+    )
+    
+    # 3. Insert rows
+    cursor.execute("INSERT INTO vineyard_rows (block_code, row_number, row_length) VALUES (%s, %s, %s)", ("test_b1", 1, 300.0))
+    cursor.execute("INSERT INTO vineyard_rows (block_code, row_number, row_length) VALUES (%s, %s, %s)", ("test_b1", 2, 280.0))
+    conn.commit()
+    
+    # 4. Verify insertion
+    cursor.execute("SELECT varieties, acres, vine_spacing FROM vineyard_blocks WHERE block_code = %s", ("test_b1",))
+    block = cursor.fetchone()
+    assert block == ("Test Merlot", 2.5, 6.0)
+    
+    cursor.execute("SELECT row_number, row_length FROM vineyard_rows WHERE block_code = %s ORDER BY row_number", ("test_b1",))
+    rows = cursor.fetchall()
+    assert len(rows) == 2
+    assert rows[0] == (1, 300.0)
+    assert rows[1] == (2, 280.0)
+    
+    # 5. Clean up
+    cursor.execute("DELETE FROM vineyard_blocks WHERE block_code = %s", ("test_b1",))
+    conn.commit()
+    
+    # 6. Verify cascade deletion of rows
+    cursor.execute("SELECT COUNT(*) FROM vineyard_rows WHERE block_code = %s", ("test_b1",))
+    assert cursor.fetchone()[0] == 0
+    
+    cursor.close()
+    conn.close()
+
+
