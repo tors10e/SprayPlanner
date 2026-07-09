@@ -6,7 +6,6 @@ from config import Config
 
 def migrate_csv_to_postgres():
     config = Config()
-    
 
     csv_path = config.excel_file
     if not os.path.exists(csv_path):
@@ -62,7 +61,7 @@ def migrate_csv_to_postgres():
         
     cursor = conn.cursor()
     
-    # Recreate the table
+    # Recreate the products table
     print("Recreating 'products' table...")
     cursor.execute('DROP TABLE IF EXISTS products CASCADE;')
     
@@ -103,7 +102,6 @@ def migrate_csv_to_postgres():
     """
     cursor.execute(create_table_sql)
     
-    # Insert rows — new columns (package_size, price_source, etc.) default to None/False for CSV data
     csv_cols = [
         "Product", "Primary Disease", "FRAC", "omri", "phi",
         "Max Applications", "Container Size", "units", "Price",
@@ -129,41 +127,141 @@ def migrate_csv_to_postgres():
             if pd.isna(val):
                 val = None
             vals.append(val)
-        # Append defaults for new fields not present in CSV
         vals += [None, None, None, None, False, False, False, False, None, None, None, None, None]
         cursor.execute(insert_sql, vals)
         count += 1
         
     print(f"Successfully migrated {count} products to PostgreSQL!")
 
-    # --- Recreate and Seed spray_history table ---
-    print("Recreating database tables in normalized schema...")
+    # Try to load existing history entries to preserve them as seed data
+    existing_entries = []
+    try:
+        cursor.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'block_events')")
+        block_events_exists = cursor.fetchone()[0]
+        cursor.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'spray_history')")
+        history_exists = cursor.fetchone()[0]
+        
+        if block_events_exists and history_exists:
+            print("Found 3-table layout data. Reading to preserve...")
+            cursor.execute("""
+                SELECT 
+                    e."Spray #", b."Date", b."End Time", b."Block ",
+                    h."Pesticide", b."Liters/Acre", h."Dose/acre", 
+                    h."Dose per L @150 l", h."Calculated Dose", h."Dose Units", 
+                    h."Actual Amt/acre", h."Notes", h."PHI Date", h."REI_TIME",
+                    p."EPA No", p."FRAC", p."Active Ingredient", p."Singal Word",
+                    p.rei, p.phi, p.units, p.min_rate, p.max_rate
+                FROM spray_history h
+                INNER JOIN block_events b ON h.block_event_id = b.id
+                INNER JOIN spray_events e ON b.event_id = e.id
+                LEFT JOIN products p ON h."Pesticide" = p."Product"
+            """)
+            rows = cursor.fetchall()
+        elif history_exists:
+            print("Found 2-table layout data. Reading to preserve...")
+            cursor.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'spray_events')")
+            events_exists = cursor.fetchone()[0]
+            if events_exists:
+                cursor.execute("SELECT COLUMN_NAME FROM information_schema.columns WHERE table_name = 'spray_history' AND column_name = 'Liters/Acre'")
+                water_in_history = cursor.fetchone() is not None
+                if water_in_history:
+                    cursor.execute("""
+                        SELECT 
+                            e."Spray #", e."Date", e."End Time", e."Block ",
+                            h."Pesticide", h."Liters/Acre", h."Dose/acre", 
+                            h."Dose per L @150 l", h."Calculated Dose", h."Dose Units", 
+                            h."Actual Amt/acre", h."Notes", h."PHI Date", h."REI_TIME",
+                            p."EPA No", p."FRAC", p."Active Ingredient", p."Singal Word",
+                            p.rei, p.phi, p.units, p.min_rate, p.max_rate
+                        FROM spray_history h
+                        INNER JOIN spray_events e ON h.event_id = e.id
+                        LEFT JOIN products p ON h."Pesticide" = p."Product"
+                    """)
+                else:
+                    cursor.execute("""
+                        SELECT 
+                            e."Spray #", e."Date", e."End Time", e."Block ",
+                            h."Pesticide", e."Liters/Acre", h."Dose/acre", 
+                            h."Dose per L @150 l", h."Calculated Dose", h."Dose Units", 
+                            h."Actual Amt/acre", h."Notes", h."PHI Date", h."REI_TIME",
+                            p."EPA No", p."FRAC", p."Active Ingredient", p."Singal Word",
+                            p.rei, p.phi, p.units, p.min_rate, p.max_rate
+                        FROM spray_history h
+                        INNER JOIN spray_events e ON h.event_id = e.id
+                        LEFT JOIN products p ON h."Pesticide" = p."Product"
+                    """)
+                rows = cursor.fetchall()
+            else:
+                rows = []
+        else:
+            rows = []
+            
+        for r in rows:
+            existing_entries.append([
+                r[0], # Spray #
+                r[1], # Date
+                r[2], # End Time
+                r[3], # Block
+                r[4], # Pesticide
+                r[14], # EPA No
+                r[15], # FRAC
+                r[16], # Active Ingredient
+                None, # Primary Disease
+                r[17], # Signal Word
+                r[18], # rei
+                r[19], # phi
+                r[20], # units
+                r[12], # PHI Date
+                r[13], # REI_TIME
+                r[5], # Liters/Acre
+                r[21], # Min Dose
+                r[22], # Max Dose
+                r[6], # Dose/acre
+                r[7], # Dose per L
+                r[20], # Rate Units
+                r[8], # Calculated Dose
+                r[9], # Dose Units
+                r[10], # Actual Amt
+                r[11] # Notes
+            ])
+        if rows:
+            print(f"Successfully loaded {len(existing_entries)} records to preserve.")
+    except Exception as e:
+        print("Warning: Could not read existing history data:", e)
+
+    # --- Recreate database tables in normalized 3-table schema ---
+    print("Recreating database tables in normalized 3-table schema...")
     cursor.execute('DROP TABLE IF EXISTS spray_history CASCADE;')
+    cursor.execute('DROP TABLE IF EXISTS block_events CASCADE;')
     cursor.execute('DROP TABLE IF EXISTS spray_events CASCADE;')
     
-    create_events_table = """
+    create_spray_events_table = """
     CREATE TABLE spray_events (
         id SERIAL PRIMARY KEY,
-        "Spray #" INTEGER,
+        "Spray #" INTEGER
+    );
+    CREATE UNIQUE INDEX unique_scheduled_spray ON spray_events ("Spray #") WHERE "Spray #" IS NOT NULL;
+    """
+    cursor.execute(create_spray_events_table)
+    
+    create_block_events_table = """
+    CREATE TABLE block_events (
+        id SERIAL PRIMARY KEY,
+        event_id INTEGER REFERENCES spray_events(id) ON DELETE CASCADE,
         "Block " VARCHAR(50),
         "Date" VARCHAR(50),
-        "End Time" VARCHAR(50)
+        "End Time" VARCHAR(50),
+        "Liters/Acre" DOUBLE PRECISION
     );
-    CREATE UNIQUE INDEX unique_spray_event_entry ON spray_events (
-        COALESCE("Spray #", -1),
-        "Block ",
-        "Date",
-        COALESCE("End Time", 'NA')
-    );
+    CREATE UNIQUE INDEX unique_event_block ON block_events (event_id, "Block ");
     """
-    cursor.execute(create_events_table)
+    cursor.execute(create_block_events_table)
     
     create_history_table = """
     CREATE TABLE spray_history (
         id SERIAL PRIMARY KEY,
-        event_id INTEGER REFERENCES spray_events(id) ON DELETE CASCADE,
+        block_event_id INTEGER REFERENCES block_events(id) ON DELETE CASCADE,
         "Pesticide" VARCHAR(255) REFERENCES products("Product") ON UPDATE CASCADE ON DELETE RESTRICT,
-        "Liters/Acre" DOUBLE PRECISION,
         "Dose/acre" DOUBLE PRECISION,
         "Dose per L @150 l" DOUBLE PRECISION,
         "Calculated Dose" DOUBLE PRECISION,
@@ -174,45 +272,50 @@ def migrate_csv_to_postgres():
         "REI_TIME" VARCHAR(50)
     );
     CREATE UNIQUE INDEX unique_spray_history_chemical ON spray_history (
-        event_id,
+        block_event_id,
         "Pesticide"
     );
     """
     cursor.execute(create_history_table)
 
-    seed_history = [
-        [4, "5/11/26", "1312", "cs", "manzate", "70506-234", "m", "mancozeb", "downy", "caution", 24.0, 66, "lbs", "7/16/26", "", 100.0, None, None, None, None, None, None, None, 1.5, ""],
-        [4, "5/11/26", "1312", "cs", "yellow jacket sulfur", "6325-13", "m2", "sulfur", "powdery", "caution", 24.0, 0, "lbs", "5/11/26", "", 100.0, None, None, 3.0, 0.03, "lbs", None, None, 3.0, ""],
-        [4, "5/11/26", "1312", "cs", "zampro", "7969=302", "45/40", "Ametoctradin, dimethomorph", "downy", "caution", 12.0, 14, "fl oz", "5/25/26", "", 200.0, 11.0, 14.0, 12.5, 0.0625, "fl oz", 375.0, "ml", 16.0, ""],
-        [4, "5/11/26", "1312", "cs", "inspire super", "100-1262", "3", "Difenoconazole, Cyprodinil*", "powdery, black rot, botrytus", "caution", 12.0, 14, "", "5/25/26", "", 16.0, 20.0, None, None, None, None, None, None, 12.0, ""],
-        [4, "5/11/26", "1448", "cs", "kphite", "42750-61-72693", "na", "Mono and dipotasium salts of phosphorous acids", "downy", "caution", 4.0, 0, "", "5/11/26", "", 150.0, None, None, 2.0, None, None, None, None, 2.0, ""],
-        [4, "5/11/26", "1448", "pm", "manzate", "70506-234", "m", "mancozeb", "downy", "caution", 24.0, 66, "lbs", "7/16/26", "", 100.0, None, None, None, None, None, None, None, 1.5, ""],
-        [4, "5/11/26", "1448", "pm", "yellow jacket sulfur", "6325-13", "m2", "sulfur", "powdery", "caution", 24.0, 0, "lbs", "5/11/26", "", 100.0, None, None, 3.0, 0.03, "lbs", None, None, 3.0, ""],
-        [4, "5/11/26", "1448", "pm", "zampro", "7969=302", "45/40", "Ametoctradin, dimethomorph", "downy", "caution", 12.0, 14, "fl oz", "5/25/26", "", 200.0, 11.0, 14.0, 12.5, 0.0625, "fl oz", 375.0, "ml", 16.0, ""],
-        [4, "5/11/26", "1448", "pm", "inspire super", "100-1262", "3", "Difenoconazole, Cyprodinil*", "powdery, black rot, botrytus", "caution", 12.0, 14, "", "5/25/26", "", None, None, None, None, None, None, None, None, 12.0, ""],
-        [4, "5/11/26", "1600", "tr", "manzate", "70506-234", "m", "mancozeb", "downy", "caution", 24.0, 66, "lbs", "7/16/26", "", 100.0, None, None, None, None, None, None, None, 1.5, ""],
-        [4, "5/11/26", "1600", "tr", "yellow jacket sulfur", "6325-13", "m2", "sulfur", "powdery", "caution", 24.0, 0, "lbs", "5/11/26", "", 100.0, None, None, 3.0, 0.03, "lbs", None, None, 3.0, ""],
-        [4, "5/11/26", "1600", "tr", "zampro", "7969=302", "45/40", "Ametoctradin, dimethomorph", "downy", "caution", 12.0, 14, "fl oz", "5/25/26", "", 200.0, 11.0, 14.0, 12.5, 0.0625, "fl oz", 375.0, "ml", 16.0, ""],
-        [4, "5/11/26", "1600", "tr", "inspire super", "100-1262", "3", "Difenoconazole, Cyprodinil*", "powdery, black rot, botrytus", "caution", 12.0, 14, "", "5/25/26", "", None, None, None, None, None, None, None, None, 12.0, ""],
-        [4, "5/11/26", "1700", "ch", "damoil", None, None, None, None, None, None, None, "", "", "", None, None, None, None, None, None, None, None, 2.0, ""],
-        [4, "5/11/26", "1700", "ch", "kphite", None, None, None, None, None, None, None, "", "", "", None, None, None, None, None, None, None, None, 2.0, ""],
-        [5, "5/30/26", "NA", "cs", "sulfur", None, None, None, None, None, None, None, "", "", "", 3.0, None, None, None, None, None, None, None, None, ""],
-        [None, "", "", "cs", "Vivando", "7969-284", "U8", "Metrafenanone", "powdery mildew", "caution", 12.0, 14, "fl oz", "1/14/00", "", 200.0, 10.3, 15.4, 12.85, 12.0, "fl oz", 72000.0, "ml", 250.0, ""],
-        [None, "", "", "cs", "renaz", "91234-198", "21", "Cyazofamid", "Downy", "caution", 12.0, 30, "fl oz", "1/30/00", "", 150.0, 2.1, 2.75, 2.425, 2.5, "fl oz", 375.0, "", None, ""],
-        [None, "", "", "cs", "kphite", "42750-61-72693", "na", "Mono and dipotasium salts of phosphorous acids", "downy", "caution", 4.0, 0, "", "1/0/00", "", 150.0, None, None, 2.0, None, None, None, None, 2.0, ""],
-        [None, "", "", "cs", "manzate", "70506-234", "m", "mancozeb", "downy", "caution", 24.0, 66, "lbs", "3/6/00", "", None, None, None, None, None, None, None, None, 1.5, ""],
-        [None, "", "", "pm", "sulfur", None, None, None, None, None, None, None, "", "", "", 3.0, None, None, None, None, None, None, None, None, ""],
-        [None, "", "", "pm", "Vivando", "7969-284", "U8", "Metrafenanone", "powdery mildew", "caution", 12.0, 14, "fl oz", "1/14/00", "", 200.0, 10.3, 15.4, 12.85, 12.0, "fl oz", 72000.0, "ml", 250.0, ""],
-        [None, "", "", "pm", "renaz", "91234-198", "21", "Cyazofamid", "Downy", "caution", 12.0, 30, "fl oz", "1/30/00", "", 150.0, 2.1, 2.75, 2.425, 2.5, "fl oz", 375.0, "", None, ""],
-        [None, "", "", "pm", "kphite", "42750-61-72693", "na", "Mono and dipotasium salts of phosphorous acids", "downy", "caution", 4.0, 0, "", "1/0/00", "", 150.0, None, None, 2.0, None, None, None, None, 2.0, ""],
-        [None, "", "", "pm", "manzate", "70506-234", "m", "mancozeb", "downy", "caution", 24.0, 66, "lbs", "3/6/00", "", None, None, None, None, None, None, None, None, 1.5, ""],
-        [None, "", "", "tr", "sulfur", None, None, None, None, None, None, None, "", "", "", 3.0, None, None, None, None, None, None, None, None, ""],
-        [None, "", "", "tr", "Vivando", "7969-284", "U8", "Metrafenanone", "powdery mildew", "caution", 12.0, 14, "fl oz", "1/14/00", "", 200.0, 10.3, 15.4, 12.85, 12.0, "fl oz", 72000.0, "ml", 250.0, ""],
-        [None, "", "", "tr", "renaz", "91234-198", "21", "Cyazofamid", "Downy", "caution", 12.0, 30, "fl oz", "1/30/00", "", 150.0, 2.1, 2.75, 2.425, 2.5, "fl oz", 375.0, "", None, ""],
-        [None, "", "", "tr", "kphite", "42750-61-72693", "na", "Mono and dipotasium salts of phosphorous acids", "downy", "caution", 4.0, 0, "", "1/0/00", "", 150.0, None, None, 2.0, None, None, None, None, 2.0, ""],
-        [None, "", "", "ch", "damoil", "19713-123", "na", "mineral oil", "powdery, botrytis", "caution", 4.0, 2, "", "1/2/00", "", None, None, None, None, None, None, None, None, 2.0, ""],
-        [None, "", "", "ch", "kphite", "42750-61-72693", "na", "Mono and dipotasium salts of phosphorous acids", "downy", "caution", 4.0, 0, "", "1/0/00", "", 150.0, None, None, 2.0, None, None, None, None, 2.0, ""]
-    ]
+    if existing_entries:
+        seed_history = existing_entries
+        print(f"Using {len(seed_history)} existing database records as seed data.")
+    else:
+        seed_history = [
+            [4, "5/11/26", "1312", "cs", "manzate", "70506-234", "m", "mancozeb", "downy", "caution", 24.0, 66, "lbs", "7/16/26", "", 100.0, None, None, None, None, None, None, None, 1.5, ""],
+            [4, "5/11/26", "1312", "cs", "yellow jacket sulfur", "6325-13", "m2", "sulfur", "powdery", "caution", 24.0, 0, "lbs", "5/11/26", "", 100.0, None, None, 3.0, 0.03, "lbs", None, None, 3.0, ""],
+            [4, "5/11/26", "1312", "cs", "zampro", "7969=302", "45/40", "Ametoctradin, dimethomorph", "downy", "caution", 12.0, 14, "fl oz", "5/25/26", "", 200.0, 11.0, 14.0, 12.5, 0.0625, "fl oz", 375.0, "ml", 16.0, ""],
+            [4, "5/11/26", "1312", "cs", "inspire super", "100-1262", "3", "Difenoconazole, Cyprodinil*", "powdery, black rot, botrytus", "caution", 12.0, 14, "", "5/25/26", "", 16.0, 20.0, None, None, None, None, None, None, 12.0, ""],
+            [4, "5/11/26", "1448", "cs", "kphite", "42750-61-72693", "na", "Mono and dipotasium salts of phosphorous acids", "downy", "caution", 4.0, 0, "", "5/11/26", "", 150.0, None, None, 2.0, None, None, None, None, 2.0, ""],
+            [4, "5/11/26", "1448", "pm", "manzate", "70506-234", "m", "mancozeb", "downy", "caution", 24.0, 66, "lbs", "7/16/26", "", 100.0, None, None, None, None, None, None, None, 1.5, ""],
+            [4, "5/11/26", "1448", "pm", "yellow jacket sulfur", "6325-13", "m2", "sulfur", "powdery", "caution", 24.0, 0, "lbs", "5/11/26", "", 100.0, None, None, 3.0, 0.03, "lbs", None, None, 3.0, ""],
+            [4, "5/11/26", "1448", "pm", "zampro", "7969=302", "45/40", "Ametoctradin, dimethomorph", "downy", "caution", 12.0, 14, "fl oz", "5/25/26", "", 200.0, 11.0, 14.0, 12.5, 0.0625, "fl oz", 375.0, "ml", 16.0, ""],
+            [4, "5/11/26", "1448", "pm", "inspire super", "100-1262", "3", "Difenoconazole, Cyprodinil*", "powdery, black rot, botrytus", "caution", 12.0, 14, "", "5/25/26", "", None, None, None, None, None, None, None, None, 12.0, ""],
+            [4, "5/11/26", "1600", "tr", "manzate", "70506-234", "m", "mancozeb", "downy", "caution", 24.0, 66, "lbs", "7/16/26", "", 100.0, None, None, None, None, None, None, None, 1.5, ""],
+            [4, "5/11/26", "1600", "tr", "yellow jacket sulfur", "6325-13", "m2", "sulfur", "powdery", "caution", 24.0, 0, "lbs", "5/11/26", "", 100.0, None, None, 3.0, 0.03, "lbs", None, None, 3.0, ""],
+            [4, "5/11/26", "1600", "tr", "zampro", "7969=302", "45/40", "Ametoctradin, dimethomorph", "downy", "caution", 12.0, 14, "fl oz", "5/25/26", "", 200.0, 11.0, 14.0, 12.5, 0.0625, "fl oz", 375.0, "ml", 16.0, ""],
+            [4, "5/11/26", "1600", "tr", "inspire super", "100-1262", "3", "Difenoconazole, Cyprodinil*", "powdery, black rot, botrytus", "caution", 12.0, 14, "", "5/25/26", "", None, None, None, None, None, None, None, None, 12.0, ""],
+            [4, "5/11/26", "1700", "ch", "damoil", None, None, None, None, None, None, None, "", "", "", None, None, None, None, None, None, None, None, 2.0, ""],
+            [4, "5/11/26", "1700", "ch", "kphite", None, None, None, None, None, None, None, "", "", "", None, None, None, None, None, None, None, None, 2.0, ""],
+            [5, "5/30/26", "NA", "cs", "sulfur", None, None, None, None, None, None, None, "", "", "", 3.0, None, None, None, None, None, None, None, None, ""],
+            [None, "", "", "cs", "Vivando", "7969-284", "U8", "Metrafenanone", "powdery mildew", "caution", 12.0, 14, "fl oz", "1/14/00", "", 200.0, 10.3, 15.4, 12.85, 12.0, "fl oz", 72000.0, "ml", 250.0, ""],
+            [None, "", "", "cs", "renaz", "91234-198", "21", "Cyazofamid", "Downy", "caution", 12.0, 30, "fl oz", "1/30/00", "", 150.0, 2.1, 2.75, 2.425, 2.5, "fl oz", 375.0, "", None, ""],
+            [None, "", "", "cs", "kphite", "42750-61-72693", "na", "Mono and dipotasium salts of phosphorous acids", "downy", "caution", 4.0, 0, "", "1/0/00", "", 150.0, None, None, 2.0, None, None, None, None, 2.0, ""],
+            [None, "", "", "cs", "manzate", "70506-234", "m", "mancozeb", "downy", "caution", 24.0, 66, "lbs", "3/6/00", "", None, None, None, None, None, None, None, None, 1.5, ""],
+            [None, "", "", "pm", "sulfur", None, None, None, None, None, None, None, "", "", "", 3.0, None, None, None, None, None, None, None, None, ""],
+            [None, "", "", "pm", "Vivando", "7969-284", "U8", "Metrafenanone", "powdery mildew", "caution", 12.0, 14, "fl oz", "1/14/00", "", 200.0, 10.3, 15.4, 12.85, 12.0, "fl oz", 72000.0, "ml", 250.0, ""],
+            [None, "", "", "pm", "renaz", "91234-198", "21", "Cyazofamid", "Downy", "caution", 12.0, 30, "fl oz", "1/30/00", "", 150.0, 2.1, 2.75, 2.425, 2.5, "fl oz", 375.0, "", None, ""],
+            [None, "", "", "pm", "kphite", "42750-61-72693", "na", "Mono and dipotasium salts of phosphorous acids", "downy", "caution", 4.0, 0, "", "1/0/00", "", 150.0, None, None, 2.0, None, None, None, None, 2.0, ""],
+            [None, "", "", "pm", "manzate", "70506-234", "m", "mancozeb", "downy", "caution", 24.0, 66, "lbs", "3/6/00", "", None, None, None, None, None, None, None, None, 1.5, ""],
+            [None, "", "", "tr", "sulfur", None, None, None, None, None, None, None, "", "", "", 3.0, None, None, None, None, None, None, None, None, ""],
+            [None, "", "", "tr", "Vivando", "7969-284", "U8", "Metrafenanone", "powdery mildew", "caution", 12.0, 14, "fl oz", "1/14/00", "", 200.0, 10.3, 15.4, 12.85, 12.0, "fl oz", 72000.0, "ml", 250.0, ""],
+            [None, "", "", "tr", "renaz", "91234-198", "21", "Cyazofamid", "Downy", "caution", 12.0, 30, "fl oz", "1/30/00", "", 150.0, 2.1, 2.75, 2.425, 2.5, "fl oz", 375.0, "", None, ""],
+            [None, "", "", "tr", "kphite", "42750-61-72693", "na", "Mono and dipotasium salts of phosphorous acids", "downy", "caution", 4.0, 0, "", "1/0/00", "", 150.0, None, None, 2.0, None, None, None, None, 2.0, ""],
+            [None, "", "", "ch", "damoil", "19713-123", "na", "mineral oil", "powdery, botrytis", "caution", 4.0, 2, "", "1/2/00", "", None, None, None, None, None, None, None, None, 2.0, ""],
+            [None, "", "", "ch", "kphite", "42750-61-72693", "na", "Mono and dipotasium salts of phosphorous acids", "downy", "caution", 4.0, 0, "", "1/0/00", "", 150.0, None, None, 2.0, None, None, None, None, 2.0, ""]
+        ]
+        print("No existing database data found. Seeding with fallback default records.")
 
     # UPSERT chemical products first to fulfill foreign key references
     print("Upserting seed products from history...")
@@ -242,63 +345,83 @@ def migrate_csv_to_postgres():
             row[7] or None,
             row[8] or None,
             row[9] or None,
-            int(row[10]) if row[10] is not None else None,
-            int(row[11]) if row[11] is not None else None,
+            int(row[10]) if row[10] is not None and str(row[10]).strip() != "" else None,
+            int(row[11]) if row[11] is not None and str(row[11]).strip() != "" else None,
             row[12] or None,
             row[16] or None,
             row[17] or None
         ))
 
-    # Seed events and chemical logs in normalized structure
+    # Seed events and chemical logs in normalized 3-table structure
     print("Seeding normalized events and chemical applications...")
-    event_map = {}
+    spray_event_map = {}
+    block_event_map = {}
     h_count = 0
     
     for row in seed_history:
-        # Extract event fields
-        spray_num = int(row[0]) if row[0] is not None else None
+        # Extract fields
+        spray_num = int(row[0]) if row[0] is not None and str(row[0]).strip() != "" else None
         date = row[1] or None
         end_time = row[2] or None
         block = row[3] or None
+        liters_acre = float(row[15]) if row[15] is not None and str(row[15]).strip() != "" else None
         
-        # Normalize empty values to None/NULL matching database representation
+        # Normalize empty values
         clean_spray_num = None if spray_num == "" or spray_num is None else int(spray_num)
         clean_block = None if block == "" or block is None else block
         clean_date = None if date == "" or date is None else date
         clean_end_time = None if end_time == "" or end_time is None else end_time
         
-        event_key = (clean_spray_num, clean_block, clean_date, clean_end_time)
-        if event_key not in event_map:
+        # 1. Get parent spray_event ID
+        if clean_spray_num is not None:
+            if clean_spray_num not in spray_event_map:
+                cursor.execute(
+                    'INSERT INTO spray_events ("Spray #") VALUES (%s) RETURNING id',
+                    (clean_spray_num,)
+                )
+                event_id = cursor.fetchone()[0]
+                spray_event_map[clean_spray_num] = event_id
+            else:
+                event_id = spray_event_map[clean_spray_num]
+        else:
+            # Unscheduled: Create a new parent event row
             cursor.execute(
-                'INSERT INTO spray_events ("Spray #", "Block ", "Date", "End Time") VALUES (%s, %s, %s, %s) RETURNING id',
-                (clean_spray_num, clean_block, clean_date, clean_end_time)
+                'INSERT INTO spray_events ("Spray #") VALUES (NULL) RETURNING id'
             )
             event_id = cursor.fetchone()[0]
-            event_map[event_key] = event_id
+            
+        # 2. Get child block_event ID
+        block_key = (event_id, clean_block)
+        if block_key not in block_event_map:
+            cursor.execute(
+                'INSERT INTO block_events (event_id, "Block ", "Date", "End Time", "Liters/Acre") VALUES (%s, %s, %s, %s, %s) RETURNING id',
+                (event_id, clean_block, clean_date, clean_end_time, liters_acre)
+            )
+            block_event_id = cursor.fetchone()[0]
+            block_event_map[block_key] = block_event_id
         else:
-            event_id = event_map[event_key]
+            block_event_id = block_event_map[block_key]
             
         # Insert chemical log
         pesticide = row[4]
         phi_date = row[13] or None
         rei_time = row[14] or None
-        liters_acre = float(row[15]) if row[15] is not None else None
-        dose_acre = float(row[18]) if row[18] is not None else None
-        dose_per_l = float(row[19]) if row[19] is not None else None
-        calc_dose = float(row[21]) if row[21] is not None else None
+        dose_acre = float(row[18]) if row[18] is not None and str(row[18]).strip() != "" else None
+        dose_per_l = float(row[19]) if row[19] is not None and str(row[19]).strip() != "" else None
+        calc_dose = float(row[21]) if row[21] is not None and str(row[21]).strip() != "" else None
         dose_units = row[22] or None
-        actual_amt = float(row[23]) if row[23] is not None else None
+        actual_amt = float(row[23]) if row[23] is not None and str(row[23]).strip() != "" else None
         notes = row[24] or ""
         
         insert_history_sql = """
         INSERT INTO spray_history (
-            event_id, "Pesticide", "Liters/Acre", "Dose/acre", 
+            block_event_id, "Pesticide", "Dose/acre", 
             "Dose per L @150 l", "Calculated Dose", "Dose Units", 
             "Actual Amt/acre", "Notes", "PHI Date", "REI_TIME"
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         cursor.execute(insert_history_sql, (
-            event_id, pesticide, liters_acre, dose_acre,
+            block_event_id, pesticide, dose_acre,
             dose_per_l, calc_dose, dose_units,
             actual_amt, notes, phi_date, rei_time
         ))
@@ -307,6 +430,7 @@ def migrate_csv_to_postgres():
     print("Granting table and sequence privileges to sprayplanner_user...")
     cursor.execute('GRANT ALL PRIVILEGES ON TABLE products TO sprayplanner_user;')
     cursor.execute('GRANT ALL PRIVILEGES ON TABLE spray_events TO sprayplanner_user;')
+    cursor.execute('GRANT ALL PRIVILEGES ON TABLE block_events TO sprayplanner_user;')
     cursor.execute('GRANT ALL PRIVILEGES ON TABLE spray_history TO sprayplanner_user;')
     cursor.execute('GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO sprayplanner_user;')
 

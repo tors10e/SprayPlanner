@@ -19,7 +19,6 @@ const EMPTY_ROW = {
     "Units": "",
     "PHI Date": "",
     "REI_TIME": "",
-    "Liters/Acre": "",
     "Min Dose": "",
     "Max Dose": "",
     "Dose/acre": "",
@@ -36,10 +35,9 @@ const EMPTY_HISTORY_FORM = {
     block: "",
     date: "",
     end_time: "",
-    original_spray_number: null,
-    original_block: null,
-    original_date: null,
-    original_end_time: null,
+    liters_acre: "",
+    event_id: null,
+    block_event_id: null,
     rows: [{ ...EMPTY_ROW }]
 };
 
@@ -120,16 +118,15 @@ const SprayHistory = () => {
     const handleShow = (group = null, event = null) => {
         if (group && event) {
             // Edit existing block event
-            setCurrentId(`${group.sprayNumber}-${event.block}`);
+            setCurrentId(event.blockEventId);
             setFormData({
                 spray_number: group.sprayNumber || "",
                 block: event.block || "",
                 date: event.date || "",
                 end_time: event.endTime || "",
-                original_spray_number: group.sprayNumber,
-                original_block: event.block,
-                original_date: event.date,
-                original_end_time: event.endTime,
+                liters_acre: event.litersAcre || "",
+                event_id: group.eventId,
+                block_event_id: event.blockEventId,
                 rows: event.items.map(item => ({ ...item }))
             });
         } else {
@@ -150,16 +147,15 @@ const SprayHistory = () => {
 
     const handleShowSingle = (event) => {
         // Edit single unscheduled block event
-        setCurrentId(`single-${event.block}-${event.date}`);
+        setCurrentId(event.blockEventId);
         setFormData({
             spray_number: "",
             block: event.block || "",
             date: event.date || "",
             end_time: event.endTime || "",
-            original_spray_number: null,
-            original_block: event.block,
-            original_date: event.date,
-            original_end_time: event.endTime,
+            liters_acre: event.litersAcre || "",
+            event_id: null,
+            block_event_id: event.blockEventId,
             rows: event.items.map(item => ({ ...item }))
         });
         setShowModal(true);
@@ -173,13 +169,14 @@ const SprayHistory = () => {
             block: "",
             date: event.date || "",
             end_time: "",
-            original_spray_number: null,
-            original_block: null,
-            original_date: null,
-            original_end_time: null,
+            liters_acre: event.litersAcre || "",
+            event_id: null,
+            block_event_id: null,
             rows: event.items.map(item => {
                 const rowCopy = { ...item };
                 delete rowCopy.id; // remove database keys
+                delete rowCopy.block_event_id;
+                delete rowCopy.event_id;
                 return rowCopy;
             })
         });
@@ -279,19 +276,16 @@ const SprayHistory = () => {
         }
         
         const payload = {
+            event_id: formData.event_id,
+            block_event_id: formData.block_event_id,
             spray_number: formData.spray_number === "" ? null : Number(formData.spray_number),
             block: formData.block,
             date: formData.date,
             end_time: formData.end_time,
-            
-            original_spray_number: formData.original_spray_number,
-            original_block: formData.original_block,
-            original_date: formData.original_date,
-            original_end_time: formData.original_end_time,
-            
+            liters_acre: formData.liters_acre === "" ? null : Number(formData.liters_acre),
             rows: formData.rows.map(row => {
                 const cleanRow = { ...row };
-                ["REI (h)", "PHI (d)", "Liters/Acre", "Min Dose", "Max Dose", "Dose/acre", "Dose per L @150 l", "Calculated Dose", "Actual Amt/acre"].forEach(key => {
+                ["REI (h)", "PHI (d)", "Min Dose", "Max Dose", "Dose/acre", "Dose per L @150 l", "Calculated Dose", "Actual Amt/acre"].forEach(key => {
                     let val = cleanRow[key];
                     cleanRow[key] = val === "" || val === null || val === undefined ? null : Number(val);
                 });
@@ -319,19 +313,14 @@ const SprayHistory = () => {
         }
     };
 
-    const handleDeleteEvent = async (sprayNumber, block, date, endTime) => {
+    const handleDeleteEvent = async (blockEventId, sprayNumber, block, date) => {
         const label = sprayNumber ? `Spray #${sprayNumber}, Block ${block}` : `Unscheduled Block ${block}`;
-        if (window.confirm(`Are you sure you want to delete ALL records under ${label} on ${date}?`)) {
+        if (window.confirm(`Are you sure you want to delete ${label} on ${date}?`)) {
             try {
                 const response = await fetch(`${HISTORY_API}/delete_event`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        spray_number: sprayNumber,
-                        block: block,
-                        date: date,
-                        end_time: endTime
-                    })
+                    body: JSON.stringify({ block_event_id: blockEventId })
                 });
                 if (response.ok) {
                     fetchHistory();
@@ -366,6 +355,48 @@ const SprayHistory = () => {
             }
         } catch (error) {
             console.error("Error updating spray number:", error);
+        }
+    };
+    const handleDeleteSprayGroup = async (sprayNumber, eventId) => {
+        if (window.confirm(`Are you sure you want to delete the entire Spray #${sprayNumber} (including all of its block events and chemicals)?`)) {
+            try {
+                const response = await fetch(`${HISTORY_API}/delete_spray_group`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ event_id: eventId })
+                });
+                if (response.ok) {
+                    fetchHistory();
+                } else {
+                    alert("Error deleting spray: " + response.statusText);
+                }
+            } catch (error) {
+                console.error("Error deleting spray:", error);
+            }
+        }
+    };
+
+    const handleCloneSprayGroup = async (sprayNumber, eventId) => {
+        const newNum = prompt(`Enter target Spray Number to clone the entire Spray #${sprayNumber} mix to:`, sprayNumber);
+        if (newNum !== null && newNum.trim() !== "") {
+            try {
+                const response = await fetch(`${HISTORY_API}/clone_spray_group`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        source_event_id: eventId,
+                        new_spray_number: Number(newNum)
+                    })
+                });
+                if (response.ok) {
+                    alert(`Successfully cloned Spray #${sprayNumber} to Spray #${newNum}!`);
+                    fetchHistory();
+                } else {
+                    alert("Error cloning spray: " + response.statusText);
+                }
+            } catch (error) {
+                console.error("Error cloning spray:", error);
+            }
         }
     };
 
@@ -421,40 +452,46 @@ const SprayHistory = () => {
             const block = item["Block "] || 'Unspecified';
             const date = item["Date"] || '';
             const endTime = item["End Time"] || '';
+            const litersAcre = item["Liters/Acre"];
+            const eventId = item["event_id"];
+            const blockEventId = item["block_event_id"];
             
             if (sprayNum !== null && sprayNum !== undefined && sprayNum !== "") {
-                const groupKey = `Spray-${sprayNum}`;
+                const groupKey = `Event-${eventId}`;
                 if (!groups[groupKey]) {
                     groups[groupKey] = {
+                        eventId: eventId,
                         sprayNumber: sprayNum,
                         blockEvents: {}
                     };
                 }
                 
-                const eventKey = `${block}-${date}-${endTime}`;
-                if (!groups[groupKey].blockEvents[eventKey]) {
-                    groups[groupKey].blockEvents[eventKey] = {
-                        key: eventKey,
+                const blockKey = `Block-${blockEventId}`;
+                if (!groups[groupKey].blockEvents[blockKey]) {
+                    groups[groupKey].blockEvents[blockKey] = {
+                        blockEventId: blockEventId,
                         block: block,
                         date: date,
                         endTime: endTime,
+                        litersAcre: litersAcre,
                         items: []
                     };
                 }
-                groups[groupKey].blockEvents[eventKey].items.push(item);
+                groups[groupKey].blockEvents[blockKey].items.push(item);
             } else {
-                // Unscheduled entries grouped by block + date + time
-                const eventKey = `${block}-${date}-${endTime}`;
-                if (!unscheduled[eventKey]) {
-                    unscheduled[eventKey] = {
-                        key: eventKey,
+                // Unscheduled entries grouped by blockEventId
+                const blockKey = `Block-${blockEventId}`;
+                if (!unscheduled[blockKey]) {
+                    unscheduled[blockKey] = {
+                        blockEventId: blockEventId,
                         block: block,
                         date: date,
                         endTime: endTime,
+                        litersAcre: litersAcre,
                         items: []
                     };
                 }
-                unscheduled[eventKey].items.push(item);
+                unscheduled[blockKey].items.push(item);
             }
         });
         
@@ -564,22 +601,29 @@ const SprayHistory = () => {
                                     if (newNum !== null && newNum.trim() !== "" && Number(newNum) !== group.sprayNumber) {
                                         handleUpdateSprayNumber(group.sprayNumber, newNum);
                                     }
-                                }}>Change #</Button>
+                                }}>Edit Spray</Button>
+                                <Button variant="outline-success" size="sm" className="ms-2 py-0 px-2 align-baseline" style={{ fontSize: '12px' }} onClick={() => handleCloneSprayGroup(group.sprayNumber, group.eventId)}>
+                                    Clone Spray
+                                </Button>
+                                <Button variant="outline-danger" size="sm" className="ms-2 py-0 px-2 align-baseline" style={{ fontSize: '12px' }} onClick={() => handleDeleteSprayGroup(group.sprayNumber, group.eventId)}>
+                                    Delete Spray
+                                </Button>
                             </div>
                             
                             {group.events.map(event => (
-                                <Card key={`block-event-${group.sprayNumber}-${event.key}`} className="mb-4 border shadow-sm w-100">
+                                <Card key={`block-event-${group.sprayNumber}-${event.blockEventId}`} className="mb-4 border shadow-sm w-100">
                                     <Card.Header className="bg-dark text-white d-flex justify-content-between align-items-center py-2">
                                         <div>
                                             <span className="h5 me-3 align-middle text-info">Block: {event.block}</span>
                                             <span className="badge bg-secondary me-2">Date: {event.date}</span>
-                                            {event.endTime && <span className="badge bg-info">End Time: {event.endTime}</span>}
-                                            <span className="badge bg-light text-dark ms-2">{event.items.length} Chemicals</span>
+                                            {event.endTime && <span className="badge bg-info me-2">End Time: {event.endTime}</span>}
+                                            <span className="badge bg-light text-dark me-2">{event.items.length} Chemicals</span>
+                                            {event.litersAcre && <span className="badge bg-warning text-dark">{event.litersAcre} L/Ac Water</span>}
                                         </div>
                                         <div>
                                             <Button variant="outline-success" size="sm" className="me-2 py-1" onClick={() => handleClone(group, event)}>Clone Event</Button>
                                             <Button variant="outline-light" size="sm" className="me-2 py-1" onClick={() => handleShow(group, event)}>Edit Event</Button>
-                                            <Button variant="outline-danger" size="sm" className="py-1" onClick={() => handleDeleteEvent(group.sprayNumber, event.block, event.date, event.endTime)}>Delete Event</Button>
+                                            <Button variant="outline-danger" size="sm" className="py-1" onClick={() => handleDeleteEvent(event.blockEventId, group.sprayNumber, event.block, event.date)}>Delete Event</Button>
                                         </div>
                                     </Card.Header>
                                     <Card.Body className="p-0">
@@ -589,7 +633,6 @@ const SprayHistory = () => {
                                                     <th>Pesticide</th>
                                                     <th>FRAC Group</th>
                                                     <th>Dose/acre</th>
-                                                    <th>Water (L/Ac)</th>
                                                     <th>Notes</th>
                                                 </tr>
                                             </thead>
@@ -603,7 +646,6 @@ const SprayHistory = () => {
                                                             ) : '-'}
                                                         </td>
                                                         <td>{item["Dose/acre"] ? `${item["Dose/acre"]} ${item["Rate Units"] || ''}` : '-'}</td>
-                                                        <td>{item["Liters/Acre"] || '-'}</td>
                                                         <td><small className="text-muted">{item["Notes"]}</small></td>
                                                     </tr>
                                                 ))}
@@ -621,18 +663,19 @@ const SprayHistory = () => {
                     <div className="mt-5">
                         <h4 className="text-secondary border-bottom pb-2 mb-3">Individual &amp; Unscheduled Block Sprays</h4>
                         {groupedData.unscheduled.map(event => (
-                            <Card key={`unscheduled-event-${event.key}`} className="mb-4 border shadow-sm w-100">
+                            <Card key={`unscheduled-event-${event.blockEventId}`} className="mb-4 border shadow-sm w-100">
                                 <Card.Header className="bg-secondary text-white d-flex justify-content-between align-items-center py-2">
                                     <div>
                                         <span className="h5 me-3 align-middle text-warning">Block: {event.block}</span>
                                         <span className="badge bg-light text-dark me-2">Date: {event.date}</span>
-                                        {event.endTime && <span className="badge bg-dark">End Time: {event.endTime}</span>}
-                                        <span className="badge bg-white text-dark ms-2">{event.items.length} Chemicals</span>
+                                        {event.endTime && <span className="badge bg-dark me-2">End Time: {event.endTime}</span>}
+                                        <span className="badge bg-white text-dark me-2">{event.items.length} Chemicals</span>
+                                        {event.litersAcre && <span className="badge bg-warning text-dark">{event.litersAcre} L/Ac Water</span>}
                                     </div>
                                     <div>
                                         <Button variant="outline-success" size="sm" className="me-2 py-1 text-white border-white" onClick={() => handleClone(null, event)}>Clone Event</Button>
                                         <Button variant="outline-light" size="sm" className="me-2 py-1" onClick={() => handleShowSingle(event)}>Edit Event</Button>
-                                        <Button variant="outline-danger" size="sm" className="py-1 text-white border-danger bg-danger" onClick={() => handleDeleteEvent(null, event.block, event.date, event.endTime)}>Delete Event</Button>
+                                        <Button variant="outline-danger" size="sm" className="py-1 text-white border-danger bg-danger" onClick={() => handleDeleteEvent(event.blockEventId, null, event.block, event.date)}>Delete Event</Button>
                                     </div>
                                 </Card.Header>
                                 <Card.Body className="p-0">
@@ -642,7 +685,6 @@ const SprayHistory = () => {
                                                 <th>Pesticide</th>
                                                 <th>FRAC Group</th>
                                                 <th>Dose/acre</th>
-                                                <th>Water (L/Ac)</th>
                                                 <th>Notes</th>
                                             </tr>
                                         </thead>
@@ -656,7 +698,6 @@ const SprayHistory = () => {
                                                         ) : '-'}
                                                     </td>
                                                     <td>{item["Dose/acre"] ? `${item["Dose/acre"]} ${item["Rate Units"] || ''}` : '-'}</td>
-                                                    <td>{item["Liters/Acre"] || '-'}</td>
                                                     <td><small className="text-muted">{item["Notes"]}</small></td>
                                                 </tr>
                                             ))}
@@ -682,28 +723,34 @@ const SprayHistory = () => {
                             <Card.Body>
                                 <h5>Block Event Configuration</h5>
                                 <Row>
-                                    <Col md={3}>
+                                    <Col md={2}>
                                         <Form.Group className="mb-3">
                                             <Form.Label>Spray #</Form.Label>
                                             <Form.Control type="number" placeholder="leave blank if Unscheduled" name="spray_number" value={formData.spray_number} onChange={handleHeaderChange} />
                                         </Form.Group>
                                     </Col>
-                                    <Col md={3}>
+                                    <Col md={2}>
                                         <Form.Group className="mb-3">
                                             <Form.Label>Block Code</Form.Label>
                                             <Form.Control type="text" placeholder="e.g. cs, pm, tr" name="block" value={formData.block} onChange={handleHeaderChange} required />
                                         </Form.Group>
                                     </Col>
-                                    <Col md={3}>
+                                    <Col md={2}>
                                         <Form.Group className="mb-3">
                                             <Form.Label>Date</Form.Label>
                                             <Form.Control type="text" placeholder="MM/DD/YY" name="date" value={formData.date} onChange={handleHeaderChange} required />
                                         </Form.Group>
                                     </Col>
-                                    <Col md={3}>
+                                    <Col md={2}>
                                         <Form.Group className="mb-3">
                                             <Form.Label>End Time</Form.Label>
                                             <Form.Control type="text" placeholder="HHMM or NA" name="end_time" value={formData.end_time} onChange={handleHeaderChange} />
+                                        </Form.Group>
+                                    </Col>
+                                    <Col md={4}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label>Water (Liters/Acre)</Form.Label>
+                                            <Form.Control type="number" step="any" placeholder="e.g. 150" name="liters_acre" value={formData.liters_acre} onChange={handleHeaderChange} />
                                         </Form.Group>
                                     </Col>
                                 </Row>
@@ -729,7 +776,7 @@ const SprayHistory = () => {
                                 </Card.Header>
                                 <Card.Body className="p-3">
                                     <Row>
-                                        <Col md={5}>
+                                        <Col md={6}>
                                             <Form.Group className="mb-2">
                                                 <Form.Label className="small mb-1">Product</Form.Label>
                                                 <Form.Select value={row["Pesticide"] || ''} onChange={(e) => handleProductSelect(idx, e)} required>
@@ -740,16 +787,10 @@ const SprayHistory = () => {
                                                 </Form.Select>
                                             </Form.Group>
                                         </Col>
-                                        <Col md={2}>
+                                        <Col md={3}>
                                             <Form.Group className="mb-2">
                                                 <Form.Label className="small mb-1">Dose/Acre</Form.Label>
                                                 <Form.Control type="number" step="0.001" placeholder="Dose" name="Dose/acre" value={row["Dose/acre"] ?? ''} onChange={(e) => handleRowChange(idx, e)} />
-                                            </Form.Group>
-                                        </Col>
-                                        <Col md={2}>
-                                            <Form.Group className="mb-2">
-                                                <Form.Label className="small mb-1">Water (L/Ac)</Form.Label>
-                                                <Form.Control type="number" placeholder="Water" name="Liters/Acre" value={row["Liters/Acre"] ?? ''} onChange={(e) => handleRowChange(idx, e)} />
                                             </Form.Group>
                                         </Col>
                                         <Col md={3}>

@@ -26,7 +26,9 @@ class SprayHistoryEntry:
         calculated_dose: float,
         dose_units: str,
         actual_amt_acre: float,
-        notes: str
+        notes: str,
+        event_id: int = None,
+        block_event_id: int = None
     ):
         self.entry_id = entry_id
         self.spray_number = spray_number
@@ -54,6 +56,8 @@ class SprayHistoryEntry:
         self.dose_units = dose_units
         self.actual_amt_acre = actual_amt_acre
         self.notes = notes
+        self.event_id = event_id
+        self.block_event_id = block_event_id
 
     def to_dict(self) -> dict:
         return {
@@ -82,5 +86,7 @@ class SprayHistoryEntry:
             "Calculated Dose": self.calculated_dose,
             "Dose Units": self.dose_units,
             "Actual Amt/acre": self.actual_amt_acre,
-            "Notes": self.notes
+            "Notes": self.notes,
+            "event_id": self.event_id,
+            "block_event_id": self.block_event_id
         }

@@ -7,10 +7,9 @@ from core.config import Config
 class SprayHistoryRepository:
     def __init__(self, config: Config):
         self.config = config
-        # Only pesticide chemical application attributes are saved in spray_history table
         self.columns = [
             "Pesticide", 
-            "Liters/Acre", "Dose/acre", "Dose per L @150 l", 
+            "Dose/acre", "Dose per L @150 l", 
             "Calculated Dose", "Dose Units", "Actual Amt/acre", "Notes",
             "PHI Date", "REI_TIME"
         ]
@@ -30,16 +29,16 @@ class SprayHistoryRepository:
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        # Load from normalized tables (INNER JOIN to spray_events)
+        # Load from all three tables: spray_history joins block_events joins spray_events
         sql = """
         SELECT 
             h.id,
             e."Spray #",
-            e."Date",
-            e."End Time",
-            e."Block ",
+            b."Date",
+            b."End Time",
+            b."Block ",
             h."Pesticide",
-            h."Liters/Acre",
+            b."Liters/Acre",
             h."Dose/acre",
             h."Dose per L @150 l",
             h."Calculated Dose",
@@ -56,11 +55,14 @@ class SprayHistoryRepository:
             p.phi as "PHI (d)",
             p.units as "Units",
             p.min_rate as "Min Dose",
-            p.max_rate as "Max Dose"
+            p.max_rate as "Max Dose",
+            e.id as event_id,
+            b.id as block_event_id
         FROM spray_history h
-        INNER JOIN spray_events e ON h.event_id = e.id
+        INNER JOIN block_events b ON h.block_event_id = b.id
+        INNER JOIN spray_events e ON b.event_id = e.id
         LEFT JOIN products p ON h."Pesticide" = p."Product"
-        ORDER BY e.id DESC, h.id ASC
+        ORDER BY e.id DESC, b.id ASC, h.id ASC
         """
         
         cursor.execute(sql)
@@ -98,7 +100,9 @@ class SprayHistoryRepository:
                 calculated_dose=float(row["Calculated Dose"]) if pd.notna(row["Calculated Dose"]) else None,
                 dose_units=str(row["Dose Units"]) if pd.notna(row["Dose Units"]) else "",
                 actual_amt_acre=float(row["Actual Amt/acre"]) if pd.notna(row["Actual Amt/acre"]) else None,
-                notes=str(row["Notes"]) if pd.notna(row["Notes"]) else ""
+                notes=str(row["Notes"]) if pd.notna(row["Notes"]) else "",
+                event_id=int(row["event_id"]) if pd.notna(row["event_id"]) else None,
+                block_event_id=int(row["block_event_id"]) if pd.notna(row["block_event_id"]) else None
             )
             entries.append(entry)
             
@@ -142,40 +146,57 @@ class SprayHistoryRepository:
         cursor = conn.cursor()
         
         try:
-            # 1. Upsert product reference
             self._upsert_product_reference(cursor, entry_data)
             
-            # 2. Find or insert spray_event
+            # 1. Resolve parent spray_events row
             spray_num = self._normalize_val(entry_data.get("Spray #"))
+            if spray_num is not None:
+                cursor.execute('SELECT id FROM spray_events WHERE "Spray #" = %s', (spray_num,))
+                row = cursor.fetchone()
+                if row:
+                    event_id = row[0]
+                else:
+                    cursor.execute('INSERT INTO spray_events ("Spray #") VALUES (%s) RETURNING id', (spray_num,))
+                    event_id = cursor.fetchone()[0]
+            else:
+                cursor.execute('INSERT INTO spray_events ("Spray #") VALUES (NULL) RETURNING id')
+                event_id = cursor.fetchone()[0]
+                
+            # 2. Resolve child block_events row
             block = self._normalize_val(entry_data.get("Block "))
             date = self._normalize_val(entry_data.get("Date"))
             end_time = self._normalize_val(entry_data.get("End Time"))
+            liters_acre = self._normalize_val(entry_data.get("Liters/Acre"))
             
             cursor.execute(
-                'SELECT id FROM spray_events WHERE "Spray #" IS NOT DISTINCT FROM %s AND "Block " IS NOT DISTINCT FROM %s AND "Date" IS NOT DISTINCT FROM %s AND "End Time" IS NOT DISTINCT FROM %s',
-                (spray_num, block, date, end_time)
+                'SELECT id FROM block_events WHERE event_id = %s AND "Block " IS NOT DISTINCT FROM %s',
+                (event_id, block)
             )
             row = cursor.fetchone()
             if row:
-                event_id = row[0]
+                block_event_id = row[0]
+                cursor.execute(
+                    'UPDATE block_events SET "Date" = %s, "End Time" = %s, "Liters/Acre" = %s WHERE id = %s',
+                    (date, end_time, liters_acre, block_event_id)
+                )
             else:
                 cursor.execute(
-                    'INSERT INTO spray_events ("Spray #", "Block ", "Date", "End Time") VALUES (%s, %s, %s, %s) RETURNING id',
-                    (spray_num, block, date, end_time)
+                    'INSERT INTO block_events (event_id, "Block ", "Date", "End Time", "Liters/Acre") VALUES (%s, %s, %s, %s, %s) RETURNING id',
+                    (event_id, block, date, end_time, liters_acre)
                 )
-                event_id = cursor.fetchone()[0]
+                block_event_id = cursor.fetchone()[0]
                 
-            # 3. Insert spray_history record
+            # 3. Insert grandchild spray_history record
             remapped_data = {self._clean_key(k): self._normalize_val(v) for k, v in entry_data.items() if k in self.columns}
-            remapped_data['event_id'] = event_id
+            remapped_data['block_event_id'] = block_event_id
             
             for col in self.columns:
                 cleaned = self._clean_key(col)
                 if cleaned not in remapped_data:
                     remapped_data[cleaned] = None
                     
-            columns_sql = 'event_id, ' + ", ".join([f'"{c}"' for c in self.columns])
-            placeholders_sql = '%(event_id)s, ' + ", ".join([f"%({self._clean_key(c)})s" for c in self.columns])
+            columns_sql = 'block_event_id, ' + ", ".join([f'"{c}"' for c in self.columns])
+            placeholders_sql = '%(block_event_id)s, ' + ", ".join([f"%({self._clean_key(c)})s" for c in self.columns])
             
             sql = f"INSERT INTO spray_history ({columns_sql}) VALUES ({placeholders_sql}) RETURNING id"
             cursor.execute(sql, remapped_data)
@@ -197,22 +218,30 @@ class SprayHistoryRepository:
         try:
             self._upsert_product_reference(cursor, entry_data)
             
-            cursor.execute("SELECT event_id FROM spray_history WHERE id = %s", (entry_id,))
+            cursor.execute("SELECT block_event_id FROM spray_history WHERE id = %s", (entry_id,))
             row = cursor.fetchone()
             if not row:
                 raise ValueError(f"History entry with id {entry_id} not found.")
-            event_id = row[0]
+            block_event_id = row[0]
             
+            cursor.execute("SELECT event_id FROM block_events WHERE id = %s", (block_event_id,))
+            event_id = cursor.fetchone()[0]
+            
+            # 1. Update parent spray_events
             spray_num = self._normalize_val(entry_data.get("Spray #"))
+            cursor.execute('UPDATE spray_events SET "Spray #" = %s WHERE id = %s', (spray_num, event_id))
+            
+            # 2. Update child block_events
             block = self._normalize_val(entry_data.get("Block "))
             date = self._normalize_val(entry_data.get("Date"))
             end_time = self._normalize_val(entry_data.get("End Time"))
-            
+            liters_acre = self._normalize_val(entry_data.get("Liters/Acre"))
             cursor.execute(
-                'UPDATE spray_events SET "Spray #" = %s, "Block " = %s, "Date" = %s, "End Time" = %s WHERE id = %s',
-                (spray_num, block, date, end_time, event_id)
+                'UPDATE block_events SET "Block " = %s, "Date" = %s, "End Time" = %s, "Liters/Acre" = %s WHERE id = %s',
+                (block, date, end_time, liters_acre, block_event_id)
             )
             
+            # 3. Update grandchild spray_history row
             update_keys = [k for k in entry_data.keys() if k in self.columns]
             if update_keys:
                 set_clause = ", ".join([f'"{col}" = %({self._clean_key(col)})s' for col in update_keys])
@@ -232,7 +261,22 @@ class SprayHistoryRepository:
     def delete_entry(self, entry_id: int):
         conn = self._get_connection()
         cursor = conn.cursor()
+        
+        cursor.execute("SELECT block_event_id FROM spray_history WHERE id = %s", (entry_id,))
+        row = cursor.fetchone()
+        block_event_id = row[0] if row else None
+        
         cursor.execute("DELETE FROM spray_history WHERE id = %s", (entry_id,))
+        
+        if block_event_id:
+            # Clean up block event if no chemicals are left
+            cursor.execute("SELECT COUNT(*) FROM spray_history WHERE block_event_id = %s", (block_event_id,))
+            if cursor.fetchone()[0] == 0:
+                cursor.execute("DELETE FROM block_events WHERE id = %s", (block_event_id,))
+                
+        # Clean up empty parent spray_events
+        cursor.execute("DELETE FROM spray_events WHERE id NOT IN (SELECT DISTINCT event_id FROM block_events)")
+        
         conn.commit()
         cursor.close()
         conn.close()
@@ -241,47 +285,67 @@ class SprayHistoryRepository:
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        event_map = {}
+        spray_event_map = {}
+        block_event_map = {}
         count = 0
         
         try:
             for entry_data in entries_list:
+                # 1. Resolve parent event
                 spray_num = self._normalize_val(entry_data.get("Spray #"))
+                if spray_num is not None:
+                    if spray_num not in spray_event_map:
+                        cursor.execute('SELECT id FROM spray_events WHERE "Spray #" = %s', (spray_num,))
+                        row = cursor.fetchone()
+                        if row:
+                            event_id = row[0]
+                        else:
+                            cursor.execute('INSERT INTO spray_events ("Spray #") VALUES (%s) RETURNING id', (spray_num,))
+                            event_id = cursor.fetchone()[0]
+                        spray_event_map[spray_num] = event_id
+                    else:
+                        event_id = spray_event_map[spray_num]
+                else:
+                    cursor.execute('INSERT INTO spray_events ("Spray #") VALUES (NULL) RETURNING id')
+                    event_id = cursor.fetchone()[0]
+                    
+                # 2. Resolve child block event
                 block = self._normalize_val(entry_data.get("Block "))
                 date = self._normalize_val(entry_data.get("Date"))
                 end_time = self._normalize_val(entry_data.get("End Time"))
+                liters_acre = self._normalize_val(entry_data.get("Liters/Acre"))
                 
-                event_key = (spray_num, block, date, end_time)
-                if event_key in event_map:
-                    event_id = event_map[event_key]
+                block_key = (event_id, block)
+                if block_key in block_event_map:
+                    block_event_id = block_event_map[block_key]
                 else:
                     cursor.execute(
-                        'SELECT id FROM spray_events WHERE "Spray #" IS NOT DISTINCT FROM %s AND "Block " IS NOT DISTINCT FROM %s AND "Date" IS NOT DISTINCT FROM %s AND "End Time" IS NOT DISTINCT FROM %s',
-                        (spray_num, block, date, end_time)
+                        'SELECT id FROM block_events WHERE event_id = %s AND "Block " IS NOT DISTINCT FROM %s',
+                        (event_id, block)
                     )
                     row = cursor.fetchone()
                     if row:
-                        event_id = row[0]
+                        block_event_id = row[0]
                     else:
                         cursor.execute(
-                            'INSERT INTO spray_events ("Spray #", "Block ", "Date", "End Time") VALUES (%s, %s, %s, %s) RETURNING id',
-                            (spray_num, block, date, end_time)
+                            'INSERT INTO block_events (event_id, "Block ", "Date", "End Time", "Liters/Acre") VALUES (%s, %s, %s, %s, %s) RETURNING id',
+                            (event_id, block, date, end_time, liters_acre)
                         )
-                        event_id = cursor.fetchone()[0]
-                    event_map[event_key] = event_id
+                        block_event_id = cursor.fetchone()[0]
+                    block_event_map[block_key] = block_event_id
                     
                 self._upsert_product_reference(cursor, entry_data)
                 
                 remapped_data = {self._clean_key(k): self._normalize_val(v) for k, v in entry_data.items() if k in self.columns}
-                remapped_data['event_id'] = event_id
+                remapped_data['block_event_id'] = block_event_id
                 
                 for col in self.columns:
                     cleaned = self._clean_key(col)
                     if cleaned not in remapped_data:
                         remapped_data[cleaned] = None
                         
-                columns_sql = 'event_id, ' + ", ".join([f'"{c}"' for c in self.columns])
-                placeholders_sql = '%(event_id)s, ' + ", ".join([f"%({self._clean_key(c)})s" for c in self.columns])
+                columns_sql = 'block_event_id, ' + ", ".join([f'"{c}"' for c in self.columns])
+                placeholders_sql = '%(block_event_id)s, ' + ", ".join([f"%({self._clean_key(c)})s" for c in self.columns])
                 sql = f"INSERT INTO spray_history ({columns_sql}) VALUES ({placeholders_sql})"
                 
                 cursor.execute(sql, remapped_data)
