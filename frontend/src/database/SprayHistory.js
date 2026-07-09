@@ -26,7 +26,6 @@ const EMPTY_ROW = {
     "Rate Units": "",
     "Calculated Dose": "",
     "Dose Units": "",
-    "Actual Amt/acre": "",
     "Notes": ""
 };
 
@@ -285,7 +284,7 @@ const SprayHistory = () => {
             liters_acre: formData.liters_acre === "" ? null : Number(formData.liters_acre),
             rows: formData.rows.map(row => {
                 const cleanRow = { ...row };
-                ["REI (h)", "PHI (d)", "Min Dose", "Max Dose", "Dose/acre", "Dose per L @150 l", "Calculated Dose", "Actual Amt/acre"].forEach(key => {
+                ["REI (h)", "PHI (d)", "Min Dose", "Max Dose", "Dose/acre", "Dose per L @150 l", "Calculated Dose"].forEach(key => {
                     let val = cleanRow[key];
                     cleanRow[key] = val === "" || val === null || val === undefined ? null : Number(val);
                 });
@@ -776,7 +775,7 @@ const SprayHistory = () => {
                                 </Card.Header>
                                 <Card.Body className="p-3">
                                     <Row>
-                                        <Col md={6}>
+                                        <Col md={9}>
                                             <Form.Group className="mb-2">
                                                 <Form.Label className="small mb-1">Product</Form.Label>
                                                 <Form.Select value={row["Pesticide"] || ''} onChange={(e) => handleProductSelect(idx, e)} required>
@@ -791,12 +790,6 @@ const SprayHistory = () => {
                                             <Form.Group className="mb-2">
                                                 <Form.Label className="small mb-1">Dose/Acre</Form.Label>
                                                 <Form.Control type="number" step="0.001" placeholder="Dose" name="Dose/acre" value={row["Dose/acre"] ?? ''} onChange={(e) => handleRowChange(idx, e)} />
-                                            </Form.Group>
-                                        </Col>
-                                        <Col md={3}>
-                                            <Form.Group className="mb-2">
-                                                <Form.Label className="small mb-1">Actual Amt/Ac</Form.Label>
-                                                <Form.Control type="number" step="0.01" placeholder="Actual" name="Actual Amt/acre" value={row["Actual Amt/acre"] ?? ''} onChange={(e) => handleRowChange(idx, e)} />
                                             </Form.Group>
                                         </Col>
                                     </Row>

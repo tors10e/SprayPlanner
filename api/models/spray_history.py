@@ -25,7 +25,6 @@ class SprayHistoryEntry:
         rate_units: str,
         calculated_dose: float,
         dose_units: str,
-        actual_amt_acre: float,
         notes: str,
         event_id: int = None,
         block_event_id: int = None
@@ -54,7 +53,6 @@ class SprayHistoryEntry:
         self.rate_units = rate_units
         self.calculated_dose = calculated_dose
         self.dose_units = dose_units
-        self.actual_amt_acre = actual_amt_acre
         self.notes = notes
         self.event_id = event_id
         self.block_event_id = block_event_id
@@ -85,7 +83,6 @@ class SprayHistoryEntry:
             "Rate Units": self.rate_units,
             "Calculated Dose": self.calculated_dose,
             "Dose Units": self.dose_units,
-            "Actual Amt/acre": self.actual_amt_acre,
             "Notes": self.notes,
             "event_id": self.event_id,
             "block_event_id": self.block_event_id

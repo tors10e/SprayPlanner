@@ -10,7 +10,7 @@ class SprayHistoryRepository:
         self.columns = [
             "Pesticide", 
             "Dose/acre", "Dose per L @150 l", 
-            "Calculated Dose", "Dose Units", "Actual Amt/acre", "Notes",
+            "Calculated Dose", "Dose Units", "Notes",
             "PHI Date", "REI_TIME"
         ]
 
@@ -43,7 +43,6 @@ class SprayHistoryRepository:
             h."Dose per L @150 l",
             h."Calculated Dose",
             h."Dose Units",
-            h."Actual Amt/acre",
             h."Notes",
             h."PHI Date",
             h."REI_TIME",
@@ -99,7 +98,6 @@ class SprayHistoryRepository:
                 rate_units=str(row["Units"]) if pd.notna(row["Units"]) else "",
                 calculated_dose=float(row["Calculated Dose"]) if pd.notna(row["Calculated Dose"]) else None,
                 dose_units=str(row["Dose Units"]) if pd.notna(row["Dose Units"]) else "",
-                actual_amt_acre=float(row["Actual Amt/acre"]) if pd.notna(row["Actual Amt/acre"]) else None,
                 notes=str(row["Notes"]) if pd.notna(row["Notes"]) else "",
                 event_id=int(row["event_id"]) if pd.notna(row["event_id"]) else None,
                 block_event_id=int(row["block_event_id"]) if pd.notna(row["block_event_id"]) else None

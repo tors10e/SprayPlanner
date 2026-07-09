@@ -148,7 +148,7 @@ def migrate_csv_to_postgres():
                     e."Spray #", b."Date", b."End Time", b."Block ",
                     h."Pesticide", b."Liters/Acre", h."Dose/acre", 
                     h."Dose per L @150 l", h."Calculated Dose", h."Dose Units", 
-                    h."Actual Amt/acre", h."Notes", h."PHI Date", h."REI_TIME",
+                    h."Notes", h."PHI Date", h."REI_TIME",
                     p."EPA No", p."FRAC", p."Active Ingredient", p."Singal Word",
                     p.rei, p.phi, p.units, p.min_rate, p.max_rate
                 FROM spray_history h
@@ -170,7 +170,7 @@ def migrate_csv_to_postgres():
                             e."Spray #", e."Date", e."End Time", e."Block ",
                             h."Pesticide", h."Liters/Acre", h."Dose/acre", 
                             h."Dose per L @150 l", h."Calculated Dose", h."Dose Units", 
-                            h."Actual Amt/acre", h."Notes", h."PHI Date", h."REI_TIME",
+                            h."Notes", h."PHI Date", h."REI_TIME",
                             p."EPA No", p."FRAC", p."Active Ingredient", p."Singal Word",
                             p.rei, p.phi, p.units, p.min_rate, p.max_rate
                         FROM spray_history h
@@ -183,7 +183,7 @@ def migrate_csv_to_postgres():
                             e."Spray #", e."Date", e."End Time", e."Block ",
                             h."Pesticide", e."Liters/Acre", h."Dose/acre", 
                             h."Dose per L @150 l", h."Calculated Dose", h."Dose Units", 
-                            h."Actual Amt/acre", h."Notes", h."PHI Date", h."REI_TIME",
+                            h."Notes", h."PHI Date", h."REI_TIME",
                             p."EPA No", p."FRAC", p."Active Ingredient", p."Singal Word",
                             p.rei, p.phi, p.units, p.min_rate, p.max_rate
                         FROM spray_history h
@@ -203,26 +203,26 @@ def migrate_csv_to_postgres():
                 r[2], # End Time
                 r[3], # Block
                 r[4], # Pesticide
-                r[14], # EPA No
-                r[15], # FRAC
-                r[16], # Active Ingredient
+                r[13], # EPA No
+                r[14], # FRAC
+                r[15], # Active Ingredient
                 None, # Primary Disease
-                r[17], # Signal Word
-                r[18], # rei
-                r[19], # phi
-                r[20], # units
-                r[12], # PHI Date
-                r[13], # REI_TIME
+                r[16], # Signal Word
+                r[17], # rei
+                r[18], # phi
+                r[19], # units
+                r[11], # PHI Date
+                r[12], # REI_TIME
                 r[5], # Liters/Acre
-                r[21], # Min Dose
-                r[22], # Max Dose
+                r[20], # Min Dose
+                r[21], # Max Dose
                 r[6], # Dose/acre
                 r[7], # Dose per L
-                r[20], # Rate Units
+                r[19], # Rate Units
                 r[8], # Calculated Dose
                 r[9], # Dose Units
-                r[10], # Actual Amt
-                r[11] # Notes
+                None, # Actual Amt (deleted)
+                r[10] # Notes
             ])
         if rows:
             print(f"Successfully loaded {len(existing_entries)} records to preserve.")
@@ -266,7 +266,6 @@ def migrate_csv_to_postgres():
         "Dose per L @150 l" DOUBLE PRECISION,
         "Calculated Dose" DOUBLE PRECISION,
         "Dose Units" VARCHAR(50),
-        "Actual Amt/acre" DOUBLE PRECISION,
         "Notes" TEXT,
         "PHI Date" VARCHAR(50),
         "REI_TIME" VARCHAR(50)
@@ -410,20 +409,19 @@ def migrate_csv_to_postgres():
         dose_per_l = float(row[19]) if row[19] is not None and str(row[19]).strip() != "" else None
         calc_dose = float(row[21]) if row[21] is not None and str(row[21]).strip() != "" else None
         dose_units = row[22] or None
-        actual_amt = float(row[23]) if row[23] is not None and str(row[23]).strip() != "" else None
         notes = row[24] or ""
         
         insert_history_sql = """
         INSERT INTO spray_history (
             block_event_id, "Pesticide", "Dose/acre", 
             "Dose per L @150 l", "Calculated Dose", "Dose Units", 
-            "Actual Amt/acre", "Notes", "PHI Date", "REI_TIME"
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            "Notes", "PHI Date", "REI_TIME"
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         cursor.execute(insert_history_sql, (
             block_event_id, pesticide, dose_acre,
             dose_per_l, calc_dose, dose_units,
-            actual_amt, notes, phi_date, rei_time
+            notes, phi_date, rei_time
         ))
         h_count += 1
 

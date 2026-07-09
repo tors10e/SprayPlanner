@@ -423,7 +423,7 @@ def clone_spray_group():
                     new_block_event_id = cursor.fetchone()[0]
                     
                 cursor.execute("""
-                    SELECT "Pesticide", "Dose/acre", "Dose per L @150 l", "Calculated Dose", "Dose Units", "Actual Amt/acre", "Notes", "PHI Date", "REI_TIME"
+                    SELECT "Pesticide", "Dose/acre", "Dose per L @150 l", "Calculated Dose", "Dose Units", "Notes", "PHI Date", "REI_TIME"
                     FROM spray_history
                     WHERE block_event_id = %s
                 """, (old_block_id,))
@@ -434,8 +434,8 @@ def clone_spray_group():
                         INSERT INTO spray_history (
                             block_event_id, "Pesticide", "Dose/acre", 
                             "Dose per L @150 l", "Calculated Dose", "Dose Units", 
-                            "Actual Amt/acre", "Notes", "PHI Date", "REI_TIME"
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            "Notes", "PHI Date", "REI_TIME"
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (new_block_event_id, *chem))
                     
             conn.commit()

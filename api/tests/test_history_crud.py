@@ -34,7 +34,6 @@ def test_history_crud_flow(history_repo):
         "Rate Units": "lbs",
         "Calculated Dose": 150.0,
         "Dose Units": "g",
-        "Actual Amt/acre": 1.5,
         "Notes": "Test log entry notes"
     }
     
@@ -81,7 +80,6 @@ def test_history_crud_flow(history_repo):
         "Rate Units": "fl oz",
         "Calculated Dose": 300.0,
         "Dose Units": "ml",
-        "Actual Amt/acre": 3.0,
         "Notes": "Updated notes"
     }
     
