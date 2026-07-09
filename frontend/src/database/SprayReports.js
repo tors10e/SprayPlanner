@@ -16,6 +16,7 @@ function SprayReports() {
     const [loading, setLoading] = useState(true);
     const [timeRange, setTimeRange] = useState('past-year');
     const [expandedChems, setExpandedChems] = useState({});
+    const [expandedBlocks, setExpandedBlocks] = useState({});
 
     useEffect(() => {
         fetchHistory();
@@ -162,6 +163,58 @@ function SprayReports() {
         return Object.values(grouped).sort((a, b) => a.chemical.localeCompare(b.chemical));
     };
 
+    const getFracReportsData = () => {
+        const getFracCodes = (fracStr) => {
+            if (!fracStr) return [];
+            return fracStr.split(/[,+/]/).map(s => s.trim()).filter(Boolean);
+        };
+
+        const grouped = {};
+
+        filteredLogs.forEach(item => {
+            const block = item["Block "] || '';
+            const rawFrac = item.Group || '';
+            const pesticide = item.Pesticide || '';
+            
+            if (!block || !rawFrac) return;
+
+            const fracs = getFracCodes(rawFrac);
+            fracs.forEach(frac => {
+                if (!grouped[block]) {
+                    grouped[block] = {
+                        block: block,
+                        fracs: {}
+                    };
+                }
+                if (!grouped[block].fracs[frac]) {
+                    grouped[block].fracs[frac] = {
+                        frac: frac,
+                        count: 0,
+                        products: new Set()
+                    };
+                }
+                grouped[block].fracs[frac].count += 1;
+                if (pesticide) {
+                    grouped[block].fracs[frac].products.add(pesticide);
+                }
+            });
+        });
+
+        return Object.values(grouped).map(bData => {
+            const fracsList = Object.values(bData.fracs).sort((a, b) => {
+                const countComp = b.count - a.count;
+                if (countComp !== 0) return countComp;
+                return a.frac.localeCompare(b.frac);
+            });
+            const totalUses = fracsList.reduce((sum, f) => sum + f.count, 0);
+            return {
+                block: bData.block,
+                fracsList: fracsList,
+                totalUses: totalUses
+            };
+        }).sort((a, b) => a.block.localeCompare(b.block));
+    };
+
     const toggleExpand = (key) => {
         setExpandedChems(prev => ({
             ...prev,
@@ -169,7 +222,15 @@ function SprayReports() {
         }));
     };
 
+    const toggleBlockExpand = (block) => {
+        setExpandedBlocks(prev => ({
+            ...prev,
+            [block]: !prev[block]
+        }));
+    };
+
     const reportsData = getReportsData();
+    const fracReportsData = getFracReportsData();
 
     // Summary stats
     const totalChemicalsUsed = new Set(filteredLogs.map(l => l.Pesticide).filter(Boolean)).size;
@@ -340,6 +401,94 @@ function SprayReports() {
                                                                                             {blk.totalCalculatedDose > 0 
                                                                                                 ? `${blk.totalCalculatedDose.toFixed(1)} ${blk.calculatedUnit}` 
                                                                                                 : '-'}
+                                                                                        </td>
+                                                                                    </tr>
+                                                                                ))}
+                                                                            </tbody>
+                                                                        </Table>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        )}
+                                                    </React.Fragment>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </Table>
+                                )}
+                            </Card.Body>
+                        </Card>
+
+                        {/* FRAC Usage Table */}
+                        <Card className="border-0 shadow-sm w-100 mt-4">
+                            <Card.Header className="bg-dark text-white py-3">
+                                <h5 className="m-0">FRAC Code Resistance Tracking (by Block)</h5>
+                            </Card.Header>
+                            <Card.Body className="p-0">
+                                {fracReportsData.length === 0 ? (
+                                    <p className="text-muted italic p-4 text-center">No chemical applications with FRAC groups found for this time range.</p>
+                                ) : (
+                                    <Table hover responsive className="m-0 bg-white">
+                                        <thead className="table-light">
+                                            <tr>
+                                                <th style={{ width: '40%' }}>Block</th>
+                                                <th className="text-center" style={{ width: '30%' }}>FRAC Codes Applied</th>
+                                                <th className="text-center" style={{ width: '30%' }}>Total FRAC Applications</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {fracReportsData.map((row) => {
+                                                const isBlockExpanded = !!expandedBlocks[row.block];
+                                                return (
+                                                    <React.Fragment key={`frac-block-group-${row.block}`}>
+                                                        {/* Parent Block Row */}
+                                                        <tr onClick={() => toggleBlockExpand(row.block)} style={{ cursor: 'pointer' }}>
+                                                            <td>
+                                                                <span className="text-secondary me-2">
+                                                                    {isBlockExpanded ? '▼' : '▶'}
+                                                                </span>
+                                                                <strong className="text-info">{row.block}</strong>
+                                                            </td>
+                                                            <td className="text-center text-muted">
+                                                                {row.fracsList.length} FRAC groups
+                                                            </td>
+                                                            <td className="text-center font-weight-bold text-success">
+                                                                {row.totalUses} times
+                                                            </td>
+                                                        </tr>
+                                                        {/* Accordion Detail Breakdown Row */}
+                                                        {isBlockExpanded && (
+                                                            <tr>
+                                                                <td colSpan={3} className="bg-light p-3">
+                                                                    <div className="border rounded bg-white p-3 shadow-sm">
+                                                                        <div className="mb-2 pb-2 border-bottom">
+                                                                            <h6 className="m-0 text-secondary">
+                                                                                FRAC Code Usage details for Block <strong>{row.block}</strong>
+                                                                            </h6>
+                                                                        </div>
+                                                                        <Table striped bordered hover size="sm" className="m-0">
+                                                                            <thead className="table-light">
+                                                                                <tr>
+                                                                                    <th style={{ width: '30%' }}>FRAC Code</th>
+                                                                                    <th className="text-center" style={{ width: '25%' }}>Times Used</th>
+                                                                                    <th>Products Applied</th>
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody>
+                                                                                {row.fracsList.map((fRow, fIdx) => (
+                                                                                    <tr key={`f-row-${fIdx}`}>
+                                                                                        <td>
+                                                                                            <Badge bg="warning" text="dark" style={{ fontSize: '12px', minWidth: '40px' }}>
+                                                                                                Group {fRow.frac}
+                                                                                            </Badge>
+                                                                                        </td>
+                                                                                        <td className="text-center">
+                                                                                            <Badge bg="secondary">
+                                                                                                {fRow.count} times
+                                                                                            </Badge>
+                                                                                        </td>
+                                                                                        <td>
+                                                                                            {Array.from(fRow.products).join(', ')}
                                                                                         </td>
                                                                                     </tr>
                                                                                 ))}
