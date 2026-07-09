@@ -55,6 +55,19 @@ def get_products():
         'effectiveness': p.effectiveness
     } for p in products])
 
+@app.route('/api/volume_units', methods=['GET'])
+def get_volume_units():
+    try:
+        conn = repo._get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT unit FROM volume_units ORDER BY unit')
+        units = [r[0] for r in cursor.fetchall()]
+        cursor.close()
+        conn.close()
+        return jsonify(units)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 @app.route('/api/products/<name>', methods=['PUT'])
 def update_product(name):
     try:

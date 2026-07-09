@@ -44,16 +44,29 @@ const EMPTY_FORM = {
 };
 
 const ProductManagement = () => {
-    ReactGA.send({ hitType: "pageview", page: "/database", title: "Product Management" });
+    ReactGA.send({ hitType: "pageview", page: "/spray-products", title: "Spray Products" });
 
     const [products, setProducts] = useState([]);
+    const [volumeUnits, setVolumeUnits] = useState([]);
     const [showModal, setShowModal] = useState(false);
     const [originalName, setOriginalName] = useState(null);
     const [formData, setFormData] = useState({});
 
     useEffect(() => {
         fetchProducts();
+        fetchVolumeUnits();
     }, []);
+
+    const fetchVolumeUnits = async () => {
+        try {
+            const url = API_BASE.replace('/products', '/volume_units');
+            const response = await fetch(url);
+            const data = await response.json();
+            setVolumeUnits(data);
+        } catch (error) {
+            console.error("Error fetching volume units:", error);
+        }
+    };
 
     const fetchProducts = async () => {
         try {
@@ -144,7 +157,7 @@ const ProductManagement = () => {
             <Row className="navbar"><NavBar /></Row>
 
             <div className="mt-4">
-                <h2>Spray Chemical Database</h2>
+                <h2>Spray Products</h2>
                 <Button variant="primary" className="mb-3" onClick={() => handleShow()}>Add New Product</Button>
 
                 <Table striped bordered hover responsive>
@@ -268,7 +281,12 @@ const ProductManagement = () => {
                             <Col md={4}>
                                 <Form.Group className="mb-3">
                                     <Form.Label>Units</Form.Label>
-                                    <Form.Control type="text" name="units" value={formData.units || ''} onChange={handleChange} />
+                                    <Form.Select name="units" value={formData.units || ''} onChange={handleChange} required>
+                                        <option value="">-- Select Unit --</option>
+                                        {volumeUnits.map(u => (
+                                            <option key={u} value={u}>{u}</option>
+                                        ))}
+                                    </Form.Select>
                                 </Form.Group>
                             </Col>
                             <Col md={4}>

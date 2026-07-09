@@ -9,9 +9,10 @@ function TerraNavbar(props) {
         <Navbar.Toggle aria-controls="basic-navbar-nav" />
         <Navbar.Collapse id="basic-navbar-nav">
             <Nav className="m-auto">
-              <Nav.Link href="/database">Database</Nav.Link>
+              <Nav.Link href="/spray-products">Spray Products</Nav.Link>
               <Nav.Link href="/history">Spray History</Nav.Link>
               <Nav.Link href="/planner">Spray Planner</Nav.Link>
+              <Nav.Link href="/reports">Reports</Nav.Link>
               <Nav.Link href="https://www.wunderground.com/dashboard/pws/KGALAKEM20" target="_blank">Current Weather</Nav.Link>
             </Nav>
         </Navbar.Collapse>

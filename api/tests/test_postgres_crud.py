@@ -149,3 +149,34 @@ def test_postgres_crud_flow(repo):
     # Verify Deletion
     products = repo.load_products(include_all=True)
     assert not any(p.name == test_product_name for p in products)
+
+def test_case_insensitive_product_uniqueness(repo):
+    p1 = "Uniqueness_Test_Chem"
+    p2 = "uniqueness_test_chem"
+    p3 = "Another_Test_Chem"
+    
+    # 1. Cleanup
+    repo.delete_product(p1)
+    repo.delete_product(p2)
+    repo.delete_product(p3)
+    
+    # 2. Add first product
+    repo.add_product({"Product": p1, "Primary Disease": "Powdery"})
+    
+    # 3. Try to add same product name with different casing (should throw ValueError)
+    with pytest.raises(ValueError) as excinfo:
+        repo.add_product({"Product": p2, "Primary Disease": "Downy"})
+    assert "already exists (case-insensitive duplicate)" in str(excinfo.value)
+    
+    # 4. Add third product
+    repo.add_product({"Product": p3, "Primary Disease": "Powdery"})
+    
+    # 5. Try to update third product to conflict with first product's name (case-insensitive)
+    with pytest.raises(ValueError) as excinfo:
+        repo.update_product(p3, {"Product": p2, "Primary Disease": "Powdery"})
+    assert "already exists (case-insensitive duplicate)" in str(excinfo.value)
+    
+    # 6. Clean up
+    repo.delete_product(p1)
+    repo.delete_product(p3)
+

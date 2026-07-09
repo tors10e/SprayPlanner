@@ -29,7 +29,8 @@ def migrate_csv_to_postgres():
 
     for col in ['FRAC', 'omri', 'units', 'Primary Disease']:
         if col in df.columns:
-            df[col] = df[col].astype(str).fillna('')
+            df[col] = df[col].fillna('').astype(str).str.strip()
+            df.loc[df[col].str.lower() == 'nan', col] = ''
 
     if 'phi' in df.columns:
         df['phi'] = pd.to_numeric(df['phi'], errors='coerce').fillna(0).astype(int)
@@ -61,6 +62,24 @@ def migrate_csv_to_postgres():
         
     cursor = conn.cursor()
     
+    # Recreate the volume_units lookup table
+    print("Recreating 'volume_units' table...")
+    cursor.execute('DROP TABLE IF EXISTS volume_units CASCADE;')
+    cursor.execute("""
+    CREATE TABLE volume_units (
+        unit VARCHAR(50) PRIMARY KEY
+    );
+    """)
+
+    # Seed volume_units with standard and CSV units
+    unique_units = set(["lbs", "fl oz", "oz", "qt", "gal", "ml", "L"])
+    if "units" in df.columns:
+        unique_units.update(df["units"].dropna().astype(str).str.strip().unique())
+    for u in sorted(unique_units):
+        u_clean = str(u).strip()
+        if u_clean and u_clean.lower() not in ['nan', 'none', 'null', '']:
+            cursor.execute('INSERT INTO volume_units (unit) VALUES (%s) ON CONFLICT DO NOTHING;', (u_clean,))
+
     # Recreate the products table
     print("Recreating 'products' table...")
     cursor.execute('DROP TABLE IF EXISTS products CASCADE;')
@@ -74,7 +93,7 @@ def migrate_csv_to_postgres():
         "phi" INTEGER,
         "Max Applications" INTEGER,
         "Container Size" DOUBLE PRECISION,
-        "units" VARCHAR(50),
+        "units" VARCHAR(50) REFERENCES volume_units(unit) ON UPDATE CASCADE ON DELETE RESTRICT,
         "Price" DOUBLE PRECISION,
         "Dose (avg)" DOUBLE PRECISION,
         "Cost/Dose" DOUBLE PRECISION,
@@ -101,6 +120,7 @@ def migrate_csv_to_postgres():
     );
     """
     cursor.execute(create_table_sql)
+    cursor.execute('CREATE UNIQUE INDEX unique_product_name_case_insensitive ON products (LOWER("Product"));')
     
     csv_cols = [
         "Product", "Primary Disease", "FRAC", "omri", "phi",
@@ -124,7 +144,7 @@ def migrate_csv_to_postgres():
         vals = []
         for col in csv_cols:
             val = row.get(col)
-            if pd.isna(val):
+            if pd.isna(val) or str(val).strip() == '' or str(val).lower() == 'nan':
                 val = None
             vals.append(val)
         vals += [None, None, None, None, False, False, False, False, None, None, None, None, None]
@@ -426,6 +446,7 @@ def migrate_csv_to_postgres():
         h_count += 1
 
     print("Granting table and sequence privileges to sprayplanner_user...")
+    cursor.execute('GRANT ALL PRIVILEGES ON TABLE volume_units TO sprayplanner_user;')
     cursor.execute('GRANT ALL PRIVILEGES ON TABLE products TO sprayplanner_user;')
     cursor.execute('GRANT ALL PRIVILEGES ON TABLE spray_events TO sprayplanner_user;')
     cursor.execute('GRANT ALL PRIVILEGES ON TABLE block_events TO sprayplanner_user;')

@@ -85,6 +85,15 @@ class ProductRepository:
         conn = self._get_connection()
         cursor = conn.cursor()
         
+        # Check duplicate name case-insensitive
+        p_name = product_data.get("Product")
+        if p_name:
+            cursor.execute('SELECT "Product" FROM products WHERE LOWER("Product") = LOWER(%s)', (p_name,))
+            if cursor.fetchone():
+                cursor.close()
+                conn.close()
+                raise ValueError(f"Product '{p_name}' already exists (case-insensitive duplicate).")
+
         remapped_data = {self._clean_key(k): v for k, v in product_data.items()}
         columns = [f"\"{k}\"" for k in product_data.keys()]
         placeholders = ", ".join([f"%({self._clean_key(k)})s" for k in product_data.keys()])
@@ -100,6 +109,15 @@ class ProductRepository:
         conn = self._get_connection()
         cursor = conn.cursor()
         
+        # Check duplicate name case-insensitive
+        new_name = product_data.get("Product")
+        if new_name and new_name.lower() != name.lower():
+            cursor.execute('SELECT "Product" FROM products WHERE LOWER("Product") = LOWER(%s)', (new_name,))
+            if cursor.fetchone():
+                cursor.close()
+                conn.close()
+                raise ValueError(f"Product '{new_name}' already exists (case-insensitive duplicate).")
+
         # Use double quotes for column names to handle spaces and preserve casing
         set_clause = ", ".join([f"\"{col}\" = %({self._clean_key(col)})s" for col in product_data.keys()])
         sql = f"UPDATE products SET {set_clause} WHERE \"Product\" = %(old_name)s"
