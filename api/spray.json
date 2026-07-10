@@ -1,0 +1,8 @@
+{
+    "chemicals":
+    [   
+        {"name":"myclobutanil", "mode": "DMI", "cost per dose": "15", "dose_ml": "500"},
+        {"name":"tebuconazole", "mode": "DMI", "cost per dose": "20", "dose_ml": "500"},
+        {"name":"triflumizole", "mode": "DMI", "cost per dose": "25", "dose_ml": "500"}
+    ]
+}

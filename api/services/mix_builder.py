@@ -1,0 +1,62 @@
+import itertools
+from typing import List, Dict, Set, Optional
+from models.product import Product
+from models.spray_event import SprayEvent
+from models.growth_stage import GrowthStage
+from core.config import Config
+from constraints.base_constraint import BaseConstraint
+from models.spray_mix import SprayMix # Ensure this import is correct
+
+class MixBuilder:
+    def __init__(self, config: Config, constraints: List[BaseConstraint]):
+        self.config = config
+        self.constraints = list(constraints) # Create a mutable copy
+
+    def build_cost_optimal_mix(
+        self,
+        available_products: List[Product],
+        event: SprayEvent,
+        history: Dict
+    ) -> Optional[SprayMix]:
+        
+        target_diseases = event.growth_stage.get_target_diseases()
+        if not target_diseases:
+            return None
+
+        # Filter candidates based on constraints and activity
+        candidates = []
+        for p in available_products:
+            # Must satisfy all constraints
+            if not all(c.is_satisfied(p, event, history) for c in self.constraints):
+                continue
+            
+            # Must have some effectiveness against target diseases
+            if not any(p.is_effective(d, self.config.minimum_spray_effectiveness) for d in target_diseases):
+                continue
+                
+            candidates.append(p)
+
+        # Sort candidates by cost
+        candidates.sort(key=lambda p: p.cost_per_dose)
+
+        # Try combinations of increasing size
+        for size in range(1, self.config.max_products_per_spray + 1):
+            for product_combo in itertools.combinations(candidates, size):
+                mix = SprayMix(list(product_combo)) # SprayMix should be defined now
+
+                # Rule: Must have a multisite backbone
+                if not mix.has_multisite():
+                    continue
+
+                # Rule: During critical periods, must have an active ingredient
+                if event.is_critical and not mix.has_active_ingredient():
+                    continue
+
+                # Rule: Must cover all target diseases
+                covered = mix.get_covered_diseases(target_diseases, self.config.minimum_spray_effectiveness)
+                if covered != target_diseases:
+                    continue
+
+                return mix
+
+        return None

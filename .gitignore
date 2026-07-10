@@ -1,4 +1,11 @@
-# Byte-compiled / optimized / DLL files
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 __pycache__/
 *.py[cod]
 *$py.class
@@ -127,6 +134,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+sprayplan_env/
 
 # Spyder project settings
 .spyderproject
@@ -146,8 +154,18 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# pytype static type analyzer
-.pytype/
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# React
+frontend/build/
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
 
 # Cython debug symbols
 cython_debug/
