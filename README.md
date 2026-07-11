@@ -24,6 +24,10 @@ Application designed to determine what vineyard and orchard sprays to purchase b
   - [3. Install & Configure Nginx](#3-install--configure-nginx)
   - [4. Install & Configure Gunicorn via systemd](#4-install--configure-gunicorn-via-systemd)
   - [5. Deploy Using the Deploy Script](#5-deploy-using-the-deploy-script)
+- [Containerized Docker Droplet Deployment (Recommended)](#containerized-docker-droplet-deployment-recommended)
+  - [1. Provision Droplet](#1-provision-droplet)
+  - [2. Deploying to the Server](#2-deploying-to-the-server)
+  - [3. Domain and SSL Setup](#3-domain-and-ssl-setup)
 
 ---
 
@@ -343,3 +347,47 @@ The script will:
 5. Run the PostgreSQL database migration to seed or update the database.
 6. Copy static files to the Nginx web root.
 7. Restart the `sprayplanner-api` systemd service.
+
+---
+
+## Containerized Docker Droplet Deployment (Recommended)
+
+This is the easiest and most robust method to deploy the application to a web server (e.g. a DigitalOcean Droplet, AWS EC2, or Linode instance) using **Docker** and **Docker Compose**. It requires zero manual installation of Python, Node, Nginx, or PostgreSQL on the host server.
+
+### 1. Provision Droplet
+Create a new Virtual Private Server (VPS). 
+- If using **DigitalOcean**, select the **Docker One-Click App** from the Marketplace under droplet creation.
+- If using a standard Linux instance, connect via SSH and install Docker:
+  ```bash
+  sudo apt update
+  sudo apt install -y docker.io docker-compose
+  sudo systemctl enable --now docker
+  ```
+
+### 2. Deploying to the Server
+Connect to your droplet via SSH and perform the following commands:
+ssh -i [path to private ssh key] [username]@137.184.66.22
+
+```bash
+# Clone the repository
+git clone <repository-url> /var/www/sprayplanner
+cd /var/www/sprayplanner
+
+# Build and start all services in the background
+docker-compose up --build -d
+```
+
+#### What happens behind the scenes?
+- **PostgreSQL Database (`db`)** is initialized with dynamic volumes persistent across container restarts.
+- **Flask Backend (`backend`)** runs a connection loop that waits until the PostgreSQL database is up, automatically runs database migrations, seeds lookup tables and historical campaigns from `api/core/db_seed_data.json`, and starts the production Gunicorn web server on port `5001`.
+- **Nginx Web Server (`frontend`)** compiles React assets, serves them, and proxies `/api` requests directly to the API container.
+
+### 3. Domain and SSL Setup
+To map your domain and get free Let's Encrypt SSL certificates:
+
+1. Map your domain DNS records (A record) to the droplet's IP address.
+2. Connect to the droplet and run the following to route external Nginx traffic and obtain SSL:
+   ```bash
+   sudo apt install -y certbot python3-certbot-nginx
+   sudo certbot --nginx -d yourdomain.com
+   ```

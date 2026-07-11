@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: sprayplanner-db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Black1ce!
+      POSTGRES_DB: sprayplanner
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  backend:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: sprayplanner-api
+    restart: always
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=sprayplanner
+      - DB_USER=postgres
+      - DB_PASSWORD=Black1ce!
+      - EXCEL_FILE_PATH=spray_product_information.csv
+    depends_on:
+      - db
+    ports:
+      - "5001:5001"
+    command: >
+      sh -c "
+      python -c \"
+      import psycopg2, time
+      while True:
+          try:
+              psycopg2.connect(host='db', database='sprayplanner', user='postgres', password='Black1ce!').close()
+              break
+          except psycopg2.OperationalError:
+              print('Waiting for database...')
+              time.sleep(1)
+      \" && python core/migrate_to_postgres.py && gunicorn -w 4 -b 0.0.0.0:5001 api:app
+      "
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sprayplanner-client
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  db_data:
