@@ -38,13 +38,41 @@ function SprayReports() {
 
     const parseDate = (dateStr) => {
         if (!dateStr) return null;
-        const parts = dateStr.split('/');
-        if (parts.length !== 3) return null;
-        const month = parseInt(parts[0], 10) - 1;
-        const day = parseInt(parts[1], 10);
-        let year = parseInt(parts[2], 10);
-        if (year < 100) year += 2000;
-        return new Date(year, month, day);
+        // Clean string
+        const cleanStr = String(dateStr).trim();
+        
+        // 1. Try slash delimiter (e.g. MM/DD/YYYY or MM/DD/YY)
+        let parts = cleanStr.split('/');
+        if (parts.length === 3) {
+            const month = parseInt(parts[0], 10) - 1;
+            const day = parseInt(parts[1], 10);
+            let year = parseInt(parts[2], 10);
+            if (year < 100) year += 2000;
+            return new Date(year, month, day);
+        }
+        
+        // 2. Try hyphen delimiter (e.g. YYYY-MM-DD or DD-MM-YYYY)
+        parts = cleanStr.split('-');
+        if (parts.length === 3) {
+            if (parts[0].length === 4) {
+                // YYYY-MM-DD
+                const year = parseInt(parts[0], 10);
+                const month = parseInt(parts[1], 10) - 1;
+                const day = parseInt(parts[2], 10);
+                return new Date(year, month, day);
+            } else {
+                // DD-MM-YYYY or MM-DD-YYYY - assume standard month/day
+                const month = parseInt(parts[0], 10) - 1;
+                const day = parseInt(parts[1], 10);
+                let year = parseInt(parts[2], 10);
+                if (year < 100) year += 2000;
+                return new Date(year, month, day);
+            }
+        }
+        
+        // 3. Fallback: try browser native Date parsing
+        const d = new Date(cleanStr);
+        return isNaN(d.getTime()) ? null : d;
     };
 
     // Filter history based on time range
