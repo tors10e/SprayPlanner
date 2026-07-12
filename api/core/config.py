@@ -28,16 +28,25 @@ class Config:
         
         self.excel_file = os.path.join(base_dir, "spray_product_information.csv")
         
-        # Database configurations
+        self.app_env = os.environ.get("APP_ENV", "development").lower()
+        
+        # Load environment-specific database credentials based on APP_ENV prefix
+        prefix = "DEV_"
+        if self.app_env == "production":
+            prefix = "PROD_"
+        elif self.app_env == "test":
+            prefix = "TEST_"
+            
         self.database_url = os.environ.get("DATABASE_URL")
-        self.db_host = os.environ.get("DB_HOST", "localhost")
+        self.db_host = os.environ.get(f"{prefix}DB_HOST") or os.environ.get("DB_HOST", "localhost")
         try:
-            self.db_port = int(os.environ.get("DB_PORT", 5432))
+            port_val = os.environ.get(f"{prefix}DB_PORT") or os.environ.get("DB_PORT", 5432)
+            self.db_port = int(port_val)
         except ValueError:
             self.db_port = 5432
-        self.db_name = os.environ.get("DB_NAME", "sprayplanner")
-        self.db_user = os.environ.get("DB_USER", "postgres")
-        self.db_password = os.environ.get("DB_PASSWORD", "Black1ce!")
+        self.db_name = os.environ.get(f"{prefix}DB_NAME") or os.environ.get("DB_NAME", "sprayplanner")
+        self.db_user = os.environ.get(f"{prefix}DB_USER") or os.environ.get("DB_USER", "postgres")
+        self.db_password = os.environ.get(f"{prefix}DB_PASSWORD") or os.environ.get("DB_PASSWORD", "Black1ce!")
 
         self.total_acres = 4
         self.sulfur_sensitive_acres = 0

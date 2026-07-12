@@ -1,6 +1,8 @@
 # SprayPlanner
 
-Application designed to determine what vineyard and orchard sprays to purchase based on growth stages, disease risks, and chemical constraints. It includes a Flask REST API backend, a React frontend for database management, and supports both SQLite (for simple local use) and a standalone PostgreSQL database for test and production environments.
+Application designed to determine what vineyard and orchard sprays to purchase based on growth stages, disease risks, and chemical constraints. It includes a Flask REST API backend, a React frontend for database management, and uses a containerized PostgreSQL database.
+
+The entire application runs inside Docker for both local development and production deployments.
 
 ---
 
@@ -8,355 +10,89 @@ Application designed to determine what vineyard and orchard sprays to purchase b
 
 - [Prerequisites](#prerequisites)
 - [Local Development Setup](#local-development-setup)
-  - [1. Clone & Virtual Environment](#1-clone--virtual-environment)
-  - [2. Install Python Dependencies](#2-install-python-dependencies)
-  - [3. Database Configuration](#3-database-configuration)
-    - [Option A — SQLite (Simple Local)](#option-a--sqlite-simple-local)
-    - [Option B — PostgreSQL (Recommended)](#option-b--postgresql-recommended)
-  - [4. Run Database Migration](#4-run-database-migration)
-  - [5. Start the Backend API](#5-start-the-backend-api)
-  - [6. Start the Frontend](#6-start-the-frontend)
-- [Environment Variables Reference](#environment-variables-reference)
 - [Running Tests](#running-tests)
-- [Production / Test Server Deployment](#production--test-server-deployment)
-  - [1. Server Prerequisites](#1-server-prerequisites)
-  - [2. Install & Configure PostgreSQL](#2-install--configure-postgresql)
-  - [3. Install & Configure Nginx](#3-install--configure-nginx)
-  - [4. Install & Configure Gunicorn via systemd](#4-install--configure-gunicorn-via-systemd)
-  - [5. Deploy Using the Deploy Script](#5-deploy-using-the-deploy-script)
-- [Containerized Docker Droplet Deployment (Recommended)](#containerized-docker-droplet-deployment-recommended)
+- [Production Droplet / VPS Deployment](#production-droplet--vps-deployment)
   - [1. Provision Droplet](#1-provision-droplet)
   - [2. Deploying to the Server](#2-deploying-to-the-server)
   - [3. Domain and SSL Setup](#3-domain-and-ssl-setup)
+- [Environment Variables Reference](#environment-variables-reference)
 
 ---
 
 ## Prerequisites
 
-- **Python** 3.9 or higher
-- **Node.js** 18+ and **npm**
-- **PostgreSQL** 14+ (for non-SQLite environments)
-- **Nginx** (for production/test server)
-- **pip** and **venv**
+This application runs entirely inside Docker. You will need to install Docker on your local development machine:
+
+### 1. Install Docker Desktop (macOS & Windows)
+- **macOS**: Download and install [Docker Desktop for Mac](https://docs.docker.com/desktop/install/mac-install/) (supports Apple Silicon and Intel).
+- **Windows**: Download and install [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/).
+- *(Note: Docker Desktop includes both the Docker Engine and Docker Compose out of the box).*
+
+### 2. Install Docker Engine & Compose (Linux / Ubuntu)
+For standard Linux/Ubuntu machines, run the following commands to install Docker Engine and the Docker Compose plugin:
+```bash
+sudo apt update
+sudo apt install -y docker.io docker-compose-v2
+sudo systemctl enable --now docker
+# Add your user to the docker group (optional, to run without sudo)
+sudo usermod -aG docker $USER
+```
+*(Please restart your terminal session after adding your user to the docker group to apply the changes).*
 
 ---
 
 ## Local Development Setup
 
-### 1. Clone & Virtual Environment
+To run the application locally:
 
+### 1. Clone the repository
 ```bash
 git clone <repository-url>
 cd SprayPlanner
-
-python3 -m venv sprayplan_env
-source sprayplan_env/bin/activate
 ```
 
-### 2. Install Python Dependencies
-
+### 2. Create the configuration file
+Copy the environment variables template to create your active `.env` file:
 ```bash
-pip install -r api/requirements.txt
-pip install pytest   # Required for running tests
+cp .env.example .env
 ```
+*(By default, `.env` is configured with `APP_ENV=development` and maps database storage locally to `./pgdata_dev`)*
 
-### 3. Database Configuration
-
-The application supports **SQLite** (default, zero-config) or a **standalone PostgreSQL** server. Configuration is done entirely via environment variables — no code changes are needed to switch between them.
-
-#### Option A — SQLite (Simple Local)
-
-No extra steps required. The app defaults to SQLite automatically when `DB_TYPE` is not set.
-
-#### Option B — PostgreSQL (Recommended)
-
-**Step 1 — Install PostgreSQL locally** (macOS example using Homebrew):
-
+### 3. Spin up the containers
 ```bash
-brew install postgresql@15
-brew services start postgresql@15
+docker-compose up --build
 ```
+This command builds and starts the multi-container stack:
+- **PostgreSQL Database (`db`)** listening on port `5432` with files saved locally in `./pgdata_dev`.
+- **Flask Backend (`backend`)** listening on port `5001`. It automatically waits for the database to start, runs migrations, and seeds lookup tables/campaign data on first boot.
+- **Nginx Web Server (`frontend`)** served on `http://localhost`. It serves React assets and reverse-proxies `/api` calls.
 
-For Ubuntu/Debian:
-
-```bash
-sudo apt update
-sudo apt install -y postgresql postgresql-contrib
-sudo systemctl enable --now postgresql
-```
-
-**Step 2 — Create the database and user:**
-
-```bash
-psql -U postgres
-```
-
-```sql
-CREATE DATABASE sprayplanner;
-CREATE USER sprayplanner_user WITH PASSWORD 'yourpassword';
-grant sprayplanner_admins to sprayplanner_user;
-GRANT CREATE ON SCHEMA public TO sprayplanner_admins;
-\q
-```
-
-**Step 3 — Export environment variables:**
-
-Set the following in your terminal session (or add them to a `.env` file or your shell profile):
-
-```bash
-export DB_TYPE=postgres
-export DB_HOST=localhost
-export DB_PORT=5432
-export DB_NAME=sprayplanner
-export DB_USER=sprayplanner_user
-export DB_PASSWORD=yourpassword
-```
-
-> **Tip:** You can also use a single `DATABASE_URL` connection string instead:
-> ```bash
-> export DATABASE_URL=postgresql://sprayplanner_user:yourpassword@localhost:5432/sprayplanner
-> ```
-
-### 4. Run Database Migration
-
-Migrate and seed the PostgreSQL database from the CSV product file:
-
-```bash
-# Make sure environment variables are exported first (see Step 3 above)
-PYTHONPATH=api python3 api/core/migrate_to_postgres.py
-```
-
-This will drop and recreate the `products` table and load all records from `spray_product_information.csv`.
-
-### 5. Start the Backend API
-
-```bash
-source sprayplan_env/bin/activate
-export PYTHONPATH=$(pwd)/api
-python3 api/api.py
-```
-
-*The API will be available at `http://localhost:5001`.*
-
-### 6. Start the Frontend
-
-In a separate terminal:
-
-```bash
-cd frontend
-npm install
-npm start
-```
-
-*The application will open in your browser at `http://localhost:3000`. Navigate to the **Database** link to manage chemical entries.*
-
----
-
-## Environment Variables Reference
-
-| Variable        | Required for Postgres | Default     | Description                                                       |
-|-----------------|-----------------------|-------------|-------------------------------------------------------------------|
-| `DB_TYPE`       | Yes                   | `sqlite`    | Set to `postgres` to use PostgreSQL, or omit/set `sqlite` for SQLite |
-| `DB_HOST`       | Yes                   | `localhost` | Hostname or IP address of the PostgreSQL server                   |
-| `DB_PORT`       | No                    | `5432`      | Port number of the PostgreSQL server                              |
-| `DB_NAME`       | No                    | `sprayplanner` | Name of the PostgreSQL database                               |
-| `DB_USER`       | No                    | `postgres`  | PostgreSQL login username                                         |
-| `DB_PASSWORD`   | Yes                   | `postgres`  | PostgreSQL login password                                         |
-| `DATABASE_URL`  | No                    | —           | Full PostgreSQL connection URL (overrides all individual `DB_*` vars) |
-| `REACT_APP_API_URL` | No                | `http://localhost:5001/api/products` | API base URL used by the React frontend at build time |
+### 4. Access the Application
+Open your browser and navigate to:
+- **Web App UI**: `http://localhost`
+  - **Username**: `admin`
+  - **Password**: `sprayplanner_admin`
+- **Backend API Docs/Endpoints**: `http://localhost:5001/api/history`
 
 ---
 
 ## Running Tests
 
+You can run the integration and unit test suite directly inside the running backend container without installing Python or dependencies on your host machine:
+
 ```bash
-source sprayplan_env/bin/activate
-PYTHONPATH=api pytest api/tests
+# Run tests inside the API container
+docker exec -it sprayplanner-api pytest api/tests -v
 ```
 
 ---
 
-## Production / Test Server Deployment
+## Production Droplet / VPS Deployment
 
-The deploy script `deploy.sh` handles building the frontend, transferring files to the server, running migrations, and restarting services. Before using it, you need to set up PostgreSQL, Nginx, and Gunicorn on the remote server.
-
-### 1. Server Prerequisites
-
-On your remote Ubuntu/Debian server:
-
-```bash
-sudo apt update
-sudo apt install -y python3 python3-venv python3-pip nginx postgresql postgresql-contrib
-```
-
-### 2. Install & Configure PostgreSQL
-
-On the **remote PostgreSQL server** (can be the same machine or a separate one):
-
-```bash
-sudo -u postgres psql
-```
-
-```sql
-CREATE DATABASE sprayplanner;
-CREATE USER sprayplanner_user WITH PASSWORD 'yourpassword';
-GRANT ALL PRIVILEGES ON DATABASE sprayplanner TO sprayplanner_user;
-\q
-```
-
-If PostgreSQL is on a **separate server**, update `pg_hba.conf` to allow remote connections:
-
-```bash
-sudo nano /etc/postgresql/15/main/pg_hba.conf
-```
-
-Add the following line (replace with your app server's IP):
-
-```
-host    sprayplanner    sprayplanner_user    YOUR_APP_SERVER_IP/32    md5
-```
-
-Also update `postgresql.conf` to listen on all interfaces (or just the app server IP):
-
-```bash
-sudo nano /etc/postgresql/15/main/postgresql.conf
-# Set: listen_addresses = '*'
-```
-
-Then restart PostgreSQL:
-
-```bash
-sudo systemctl restart postgresql
-```
-
-### 3. Install & Configure Nginx
-
-**Step 1 — Copy the Nginx config template** to sites-available on your server:
-
-```bash
-sudo cp /var/www/sprayplanner/nginx.conf.template /etc/nginx/sites-available/sprayplanner
-```
-
-**Step 2 — Edit the config** and replace `YOUR_DOMAIN_OR_IP` with your server's domain or IP address:
-
-```bash
-sudo nano /etc/nginx/sites-available/sprayplanner
-```
-
-```nginx
-server {
-    listen 80;
-    server_name YOUR_DOMAIN_OR_IP;
-
-    root /var/www/html/sprayplanner;
-    index index.html;
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    location /api {
-        proxy_pass http://127.0.0.1:5001;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-**Step 3 — Enable the site and reload Nginx:**
-
-```bash
-sudo ln -sf /etc/nginx/sites-available/sprayplanner /etc/nginx/sites-enabled/sprayplanner
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-### 4. Install & Configure Gunicorn via systemd
-
-**Step 1 — Copy the systemd service template** to `/etc/systemd/system/`:
-
-```bash
-sudo cp /var/www/sprayplanner/sprayplanner-api.service.template \
-        /etc/systemd/system/sprayplanner-api.service
-```
-
-**Step 2 — Edit the service file** and fill in your values:
-
-```bash
-sudo nano /etc/systemd/system/sprayplanner-api.service
-```
-
-Replace the placeholder values:
-
-| Placeholder                         | Replace with                                      |
-|-------------------------------------|---------------------------------------------------|
-| `YOUR_SYSTEM_USER`                  | Your Linux user (e.g. `ubuntu`)                   |
-| `YOUR_STANDALONE_POSTGRES_HOST`     | IP or hostname of your PostgreSQL server          |
-| `YOUR_STANDALONE_POSTGRES_PASSWORD` | Your PostgreSQL password                          |
-
-The complete service file should look like:
-
-```ini
-[Unit]
-Description=Gunicorn instance to serve SprayPlanner Flask API
-After=network.target
-
-[Service]
-User=ubuntu
-WorkingDirectory=/var/www/sprayplanner/api
-Environment="PATH=/var/www/sprayplanner/sprayplan_env/bin"
-Environment="DB_TYPE=postgres"
-Environment="DB_HOST=YOUR_DB_HOST"
-Environment="DB_PORT=5432"
-Environment="DB_NAME=sprayplanner"
-Environment="DB_USER=sprayplanner_user"
-Environment="DB_PASSWORD=yourpassword"
-Environment="PYTHONPATH=/var/www/sprayplanner/api"
-ExecStart=/var/www/sprayplanner/sprayplan_env/bin/gunicorn --workers 4 --bind 127.0.0.1:5001 api:app
-
-[Install]
-WantedBy=multi-user.target
-```
-
-**Step 3 — Enable and start the service:**
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now sprayplanner-api
-sudo systemctl status sprayplanner-api
-```
-
-### 5. Deploy Using the Deploy Script
-
-Once the server is configured, use `deploy.sh` from your local machine to build and deploy the app to `test` or `prod`:
-
-```bash
-chmod +x deploy.sh
-./deploy.sh test ubuntu@YOUR_TEST_SERVER_IP
-# or
-./deploy.sh prod ubuntu@YOUR_PROD_SERVER_IP
-```
-
-The script will:
-1. Run local unit tests.
-2. Build the React frontend with the correct API URL.
-3. Transfer backend Python files and the frontend build to the server.
-4. Install/update Python dependencies in the remote virtual environment.
-5. Run the PostgreSQL database migration to seed or update the database.
-6. Copy static files to the Nginx web root.
-7. Restart the `sprayplanner-api` systemd service.
-
----
-
-## Containerized Docker Droplet Deployment (Recommended)
-
-This is the easiest and most robust method to deploy the application to a web server (e.g. a DigitalOcean Droplet, AWS EC2, or Linode instance) using **Docker** and **Docker Compose**. It requires zero manual installation of Python, Node, Nginx, or PostgreSQL on the host server.
+This application is fully optimized for automated containerized deployment to any cloud provider virtual private server (VPS), such as a DigitalOcean Docker Droplet.
 
 ### 1. Provision Droplet
-Create a new Virtual Private Server (VPS). 
-- If using **DigitalOcean**, select the **Docker One-Click App** from the Marketplace under droplet creation.
+- If using **DigitalOcean**, select the **Docker One-Click App** from the Marketplace during droplet creation.
 - If using a standard Linux instance, connect via SSH and install Docker:
   ```bash
   sudo apt update
@@ -365,29 +101,52 @@ Create a new Virtual Private Server (VPS).
   ```
 
 ### 2. Deploying to the Server
-Connect to your droplet via SSH and perform the following commands:
-ssh -i [path to private ssh key] [username]@137.184.66.22
+Connect to your droplet via SSH:
 
 ```bash
 # Clone the repository
 git clone <repository-url> /var/www/sprayplanner
 cd /var/www/sprayplanner
 
-# Build and start all services in the background
-docker-compose up --build -d
+# Copy configuration template
+cp .env.example .env
 ```
 
-#### What happens behind the scenes?
-- **PostgreSQL Database (`db`)** is initialized with dynamic volumes persistent across container restarts.
-- **Flask Backend (`backend`)** runs a connection loop that waits until the PostgreSQL database is up, automatically runs database migrations, seeds lookup tables and historical campaigns from `api/core/db_seed_data.json`, and starts the production Gunicorn web server on port `5001`.
-- **Nginx Web Server (`frontend`)** compiles React assets, serves them, and proxies `/api` requests directly to the API container.
+Open `.env` in a text editor (e.g. `nano .env`) to customize settings for your production environment:
+- Set **`APP_ENV=production`** (the Flask server will automatically resolve credentials from the `PROD_*` settings block).
+- Set **`DB_VOLUME_PATH`** to map the database files directly to your attached block storage volume (e.g. `volume-nyc1-1783782660424`):
+  ```ini
+  DB_VOLUME_PATH=/mnt/volume-nyc1-1783782660424/postgres_data
+  ```
+
+Build and run the container stack in the background:
+```bash
+docker-compose up --build -d
+```
 
 ### 3. Domain and SSL Setup
 To map your domain and get free Let's Encrypt SSL certificates:
 
 1. Map your domain DNS records (A record) to the droplet's IP address.
-2. Connect to the droplet and run the following to route external Nginx traffic and obtain SSL:
+2. Connect to the droplet and run:
    ```bash
    sudo apt install -y certbot python3-certbot-nginx
    sudo certbot --nginx -d yourdomain.com
    ```
+
+---
+
+## Environment Variables Reference
+
+All configurations are managed inside the `.env` file. You can configure distinct connection settings for each environment using prefixes:
+
+| Variable | Scope | Default | Description |
+|---|---|---|---|
+| `APP_ENV` | Global | `development` | The active environment: `production`, `test`, or `development` |
+| `DB_VOLUME_PATH` | Global | `./pgdata` | Mount directory path for Postgres storage (e.g. custom attached droplet volume) |
+| `DEV_DB_NAME` | Dev | `sprayplanner_dev` | Database name for development |
+| `TEST_DB_NAME` | Test | `sprayplanner_test` | Database name for testing |
+| `PROD_DB_NAME` | Prod | `sprayplanner` | Database name for production |
+| `*_DB_HOST` | All | `db` | Database host container name inside Docker |
+| `*_DB_USER` | All | `postgres` | Database login username |
+| `*_DB_PASSWORD`| All | `Black1ce!` | Database login password |
