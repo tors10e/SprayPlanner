@@ -511,17 +511,27 @@ def migrate_csv_to_postgres():
             ))
             h_count += 1
 
-    print("Granting table and sequence privileges to sprayplanner_user...")
-    cursor.execute('GRANT ALL PRIVILEGES ON TABLE volume_units TO sprayplanner_user;')
-    cursor.execute('GRANT ALL PRIVILEGES ON TABLE products TO sprayplanner_user;')
-    cursor.execute('GRANT ALL PRIVILEGES ON TABLE vineyard_blocks TO sprayplanner_user;')
-    cursor.execute('GRANT ALL PRIVILEGES ON TABLE vineyard_rows TO sprayplanner_user;')
-    cursor.execute('GRANT ALL PRIVILEGES ON TABLE spray_events TO sprayplanner_user;')
-    cursor.execute('GRANT ALL PRIVILEGES ON TABLE block_events TO sprayplanner_user;')
-    cursor.execute('GRANT ALL PRIVILEGES ON TABLE spray_history TO sprayplanner_user;')
-    cursor.execute('GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO sprayplanner_user;')
-
+    # Commit the main migration transaction first
     conn.commit()
+
+    print("Granting table and sequence privileges to sprayplanner_user...")
+    try:
+        # Create a new cursor to start a new transaction for privileges
+        cursor.close()
+        cursor = conn.cursor()
+        cursor.execute('GRANT ALL PRIVILEGES ON TABLE volume_units TO sprayplanner_user;')
+        cursor.execute('GRANT ALL PRIVILEGES ON TABLE products TO sprayplanner_user;')
+        cursor.execute('GRANT ALL PRIVILEGES ON TABLE vineyard_blocks TO sprayplanner_user;')
+        cursor.execute('GRANT ALL PRIVILEGES ON TABLE vineyard_rows TO sprayplanner_user;')
+        cursor.execute('GRANT ALL PRIVILEGES ON TABLE spray_events TO sprayplanner_user;')
+        cursor.execute('GRANT ALL PRIVILEGES ON TABLE block_events TO sprayplanner_user;')
+        cursor.execute('GRANT ALL PRIVILEGES ON TABLE spray_history TO sprayplanner_user;')
+        cursor.execute('GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO sprayplanner_user;')
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print("Warning: Could not grant privileges to sprayplanner_user (role may not exist):", e)
+
     cursor.close()
     conn.close()
     
