@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: Black1ce!
       POSTGRES_DB: sprayplanner
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - ${DB_VOLUME_PATH:-./pgdata}:/var/lib/postgresql/data
     ports:
       - "5432:5432"
 
@@ -27,6 +27,7 @@ services:
       - DB_USER=postgres
       - DB_PASSWORD=Black1ce!
       - EXCEL_FILE_PATH=spray_product_information.csv
+      - APP_ENV=${APP_ENV:-production}
     depends_on:
       - db
     ports:
@@ -55,6 +56,3 @@ services:
       - "80:80"
     depends_on:
       - backend
-
-volumes:
-  db_data:

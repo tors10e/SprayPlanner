@@ -366,21 +366,40 @@ Create a new Virtual Private Server (VPS).
 
 ### 2. Deploying to the Server
 Connect to your droplet via SSH and perform the following commands:
-ssh -i [path to private ssh key] [username]@137.184.66.22
 
 ```bash
 # Clone the repository
 git clone <repository-url> /var/www/sprayplanner
 cd /var/www/sprayplanner
+```
 
-# Build and start all services in the background
+#### Step A — Setup Environment Configurations (`.env`)
+Copy the provided environment variables template:
+```bash
+cp .env.example .env
+```
+
+Open `.env` in a text editor (e.g. `nano .env`) to customize the settings:
+- **`APP_ENV`**: Set to the active environment mode (e.g. `production`, `test`, or `development`). The Flask server will automatically resolve credentials from the corresponding prefix block (`PROD_*`, `TEST_*`, or `DEV_*`) depending on this value.
+- **`DB_VOLUME_PATH`**: Point this to your active environment's volume folder so Docker maps it correctly. For your production droplet with an attached block storage volume (e.g. `volume-nyc1-1783782660424`), set this to:
+  ```ini
+  DB_VOLUME_PATH=/mnt/volume-nyc1-1783782660424/postgres_data
+  ```
+- **Environment Groups**: You can configure distinct database names and connection settings under the `DEV_*`, `TEST_*`, and `PROD_*` prefixes directly in the `.env` file to keep all environments organized in one place.
+
+#### Step B — Spin up Containers
+Build and run the stack in the background:
+```bash
 docker-compose up --build -d
 ```
 
 #### What happens behind the scenes?
-- **PostgreSQL Database (`db`)** is initialized with dynamic volumes persistent across container restarts.
-- **Flask Backend (`backend`)** runs a connection loop that waits until the PostgreSQL database is up, automatically runs database migrations, seeds lookup tables and historical campaigns from `api/core/db_seed_data.json`, and starts the production Gunicorn web server on port `5001`.
-- **Nginx Web Server (`frontend`)** compiles React assets, serves them, and proxies `/api` requests directly to the API container.
+- **PostgreSQL Database (`db`)** is initialized, and files are stored on your droplet block storage volume mapped via `DB_VOLUME_PATH`.
+- **Flask Backend (`backend`)** runs a connection loop that waits until the PostgreSQL database is ready. It then checks if the database is empty:
+  - If **empty**, it migrates schemas and seeds lookup tables and historical campaigns from `api/core/db_seed_data.json`.
+  - If **populated**, it skips seeding and migrations automatically to secure your records against container restarts.
+  Finally, it launches the production Gunicorn web server on port `5001`.
+- **Nginx Web Server (`frontend`)** compiles React assets, serves them under Nginx HTTP Basic Authentication (configured in `.htpasswd`), and proxies `/api` requests directly to the API container.
 
 ### 3. Domain and SSL Setup
 To map your domain and get free Let's Encrypt SSL certificates:

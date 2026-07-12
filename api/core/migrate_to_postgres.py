@@ -63,6 +63,21 @@ def migrate_csv_to_postgres():
         
     cursor = conn.cursor()
 
+    # Safety guard: if database is already initialized and has data, skip seeding/migrations
+    force_migrate = "--force" in sys.argv
+    if not force_migrate:
+        try:
+            cursor.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'spray_history')")
+            if cursor.fetchone()[0]:
+                cursor.execute("SELECT COUNT(*) FROM spray_history")
+                if cursor.fetchone()[0] > 0:
+                    print("PostgreSQL database is already initialized and contains data. Skipping seeding/migrations.")
+                    cursor.close()
+                    conn.close()
+                    return
+        except Exception as e:
+            print("Checking database initialization status:", e)
+
     # Try to load all existing tables to preserve them as seed data
     existing_data = {}
     
