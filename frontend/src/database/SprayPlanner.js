@@ -5,7 +5,7 @@ import NavBar from "../components/navbar";
 import Footer from "../components/footer";
 import ReactGA from "react-ga4";
 
-const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5001/api/products";
+const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:5001/api/products' : '/api/products';
 const PLANNER_API = API_BASE.replace('/products', '/planner/generate');
 
 const SprayPlanner = () => {
