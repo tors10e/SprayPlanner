@@ -456,6 +456,74 @@ const SprayHistory = () => {
         }
     };
 
+    const exportToCsv = () => {
+        if (!history || history.length === 0) {
+            alert("No history data available to export.");
+            return;
+        }
+
+        ReactGA.event({ category: "History", action: "Export CSV" });
+
+        const headers = [
+            "Spray #", "Date", "End Time", "Block", "Pesticide", "EPA No", "Group",
+            "Active Ingredient", "Pest", "Singal Word", "REI (h)", "PHI (d)", "Units",
+            "PHI Date", "REI_TIME", "Liters/Acre", "Min Dose", "Max Dose", "Dose/acre",
+            "Dose per L @150 l", "Rate Units", "Calculated Dose", "Dose Units", "Actual. Amt/acre", "Notes"
+        ];
+
+        const escapeCsvCell = (val) => {
+            if (val === null || val === undefined) return '""';
+            const stringVal = String(val);
+            const escaped = stringVal.replace(/"/g, '""');
+            return `"${escaped}"`;
+        };
+
+        const csvRows = [];
+        csvRows.push(headers.join(","));
+
+        history.forEach(item => {
+            const rowValues = [
+                item["Spray #"] !== undefined && item["Spray #"] !== null ? item["Spray #"] : "",
+                item["Date"] || "",
+                item["End Time"] || "",
+                item["Block "] || "",
+                item["Pesticide"] || "",
+                item["EPA No"] || "",
+                item["Group"] || "",
+                item["Active Ingredient"] || "",
+                item["Pest"] || "",
+                item["Singal Word"] || "",
+                item["REI (h)"] !== undefined && item["REI (h)"] !== null ? item["REI (h)"] : "",
+                item["PHI (d)"] !== undefined && item["PHI (d)"] !== null ? item["PHI (d)"] : "",
+                item["Units"] || "",
+                item["PHI Date"] || "",
+                item["REI_TIME"] || "",
+                item["Liters/Acre"] !== undefined && item["Liters/Acre"] !== null ? item["Liters/Acre"] : "",
+                item["Min Dose"] !== undefined && item["Min Dose"] !== null ? item["Min Dose"] : "",
+                item["Max Dose"] !== undefined && item["Max Dose"] !== null ? item["Max Dose"] : "",
+                item["Dose/acre"] !== undefined && item["Dose/acre"] !== null ? item["Dose/acre"] : "",
+                item["Dose per L @150 l"] !== undefined && item["Dose per L @150 l"] !== null ? item["Dose per L @150 l"] : "",
+                item["Rate Units"] || item["Units"] || "",
+                item["Calculated Dose"] !== undefined && item["Calculated Dose"] !== null ? item["Calculated Dose"] : "",
+                item["Dose Units"] || "",
+                item["Dose/acre"] !== undefined && item["Dose/acre"] !== null ? item["Dose/acre"] : "",
+                item["Notes"] || ""
+            ];
+            csvRows.push(rowValues.map(escapeCsvCell).join(","));
+        });
+
+        const csvContent = csvRows.join("\n");
+        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `spray_history_${new Date().toISOString().slice(0, 10)}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     // Sub-grouping logic: group by Spray Number, then sub-group by Block Event (block + date + time)
     const getGroupedHistory = () => {
         const groups = {};
@@ -577,7 +645,8 @@ const SprayHistory = () => {
                 {/* ── Actions (Add & Upload CSV) ── */}
                 <Row className="mb-3 align-items-center">
                     <Col md={6}>
-                        <Button variant="primary" onClick={() => handleShow()}>Add Spray Event</Button>
+                        <Button variant="primary" onClick={() => handleShow()} className="me-2">Add Spray Event</Button>
+                        <Button variant="outline-primary" onClick={exportToCsv}>Export CSV</Button>
                     </Col>
                     <Col md={6} className="text-md-end mt-2 mt-md-0">
                         <Form onSubmit={handleFileUpload} className="d-inline-flex align-items-center">
