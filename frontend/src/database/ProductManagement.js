@@ -52,6 +52,12 @@ const ProductManagement = () => {
     const [originalName, setOriginalName] = useState(null);
     const [formData, setFormData] = useState({});
 
+    // Replacement Modal State
+    const [showReplacementModal, setShowReplacementModal] = useState(false);
+    const [productToDelete, setProductToDelete] = useState(null);
+    const [usageCount, setUsageCount] = useState(0);
+    const [selectedReplacement, setSelectedReplacement] = useState("");
+
     useEffect(() => {
         fetchProducts();
         fetchVolumeUnits();
@@ -139,15 +145,50 @@ const ProductManagement = () => {
     const handleDelete = async (name) => {
         if (window.confirm(`Are you sure you want to delete ${name}?`)) {
             try {
-                const response = await fetch(`${API_BASE}/${name}`, {
+                const response = await fetch(`${API_BASE}/${encodeURIComponent(name)}`, {
                     method: 'DELETE'
                 });
                 if (response.ok) {
                     fetchProducts();
+                } else if (response.status === 409) {
+                    const result = await response.json();
+                    setProductToDelete(name);
+                    setUsageCount(result.usage_count);
+                    setSelectedReplacement("");
+                    setShowReplacementModal(true);
+                } else {
+                    const errorText = await response.text();
+                    alert(`Error deleting product: ${response.status} ${errorText}`);
                 }
             } catch (error) {
                 console.error("Error deleting product:", error);
+                alert("Network error: " + error.message);
             }
+        }
+    };
+
+    const handleDeleteWithReplacement = async () => {
+        if (!selectedReplacement) {
+            alert("Please select a replacement product.");
+            return;
+        }
+        try {
+            const response = await fetch(`${API_BASE}/${encodeURIComponent(productToDelete)}?replacement=${encodeURIComponent(selectedReplacement)}`, {
+                method: 'DELETE'
+            });
+            if (response.ok) {
+                setShowReplacementModal(false);
+                setProductToDelete(null);
+                setUsageCount(0);
+                setSelectedReplacement("");
+                fetchProducts();
+            } else {
+                const errorText = await response.text();
+                alert(`Error during replacement delete: ${response.status} ${errorText}`);
+            }
+        } catch (error) {
+            console.error("Error during replacement delete:", error);
+            alert("Network error: " + error.message);
         }
     };
 
@@ -432,6 +473,45 @@ const ProductManagement = () => {
                         <Button variant="primary" type="submit">Save Changes</Button>
                     </Form>
                 </Modal.Body>
+            </Modal>
+
+            {/* ── Chemical Replacement & Deletion Modal ── */}
+            <Modal show={showReplacementModal} onHide={() => setShowReplacementModal(false)}>
+                <Modal.Header closeButton>
+                    <Modal.Title>Replacement Required</Modal.Title>
+                </Modal.Header>
+                <Modal.Body>
+                    <p>
+                        The product <strong>{productToDelete}</strong> is currently referenced in <strong>{usageCount}</strong> spray history entries.
+                    </p>
+                    <p>
+                        Please choose a replacement product to update those historical entries with:
+                    </p>
+                    <Form.Group className="mb-3">
+                        <Form.Label>Replacement Product</Form.Label>
+                        <Form.Select 
+                            value={selectedReplacement} 
+                            onChange={(e) => setSelectedReplacement(e.target.value)}
+                            required
+                        >
+                            <option value="">-- Select Replacement --</option>
+                            {products
+                                .filter(p => p.Product !== productToDelete)
+                                .map(p => (
+                                    <option key={p.Product} value={p.Product}>
+                                        {p.Product}
+                                    </option>
+                                ))
+                            }
+                        </Form.Select>
+                    </Form.Group>
+                </Modal.Body>
+                <Modal.Footer>
+                    <Button variant="secondary" onClick={() => setShowReplacementModal(false)}>Cancel</Button>
+                    <Button variant="danger" onClick={handleDeleteWithReplacement} disabled={!selectedReplacement}>
+                        Confirm & Replace
+                    </Button>
+                </Modal.Footer>
             </Modal>
 
             <Row><Footer /></Row>

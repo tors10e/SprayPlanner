@@ -124,8 +124,53 @@ def add_product():
 
 @app.route('/api/products/<name>', methods=['DELETE'])
 def delete_product(name):
-    repo.delete_product(name)
-    return jsonify({'status': 'success'})
+    replacement = request.args.get('replacement')
+    try:
+        conn = repo._get_connection()
+        cursor = conn.cursor()
+        
+        # Check references count in spray_history
+        cursor.execute('SELECT COUNT(*) FROM spray_history WHERE "Pesticide" = %s', (name,))
+        count = cursor.fetchone()[0]
+        
+        if count > 0:
+            if not replacement:
+                cursor.close()
+                conn.close()
+                return jsonify({
+                    'status': 'conflict',
+                    'message': f'Product "{name}" is referenced in {count} spray history entries.',
+                    'usage_count': count
+                }), 409
+            else:
+                # Verify that replacement exists in products
+                cursor.execute('SELECT EXISTS(SELECT 1 FROM products WHERE "Product" = %s)', (replacement,))
+                exists = cursor.fetchone()[0]
+                if not exists:
+                    cursor.close()
+                    conn.close()
+                    return jsonify({
+                        'status': 'error',
+                        'message': f'Replacement product "{replacement}" does not exist.'
+                    }), 400
+                
+                # Remap in a single transaction
+                cursor.execute('UPDATE spray_history SET "Pesticide" = %s WHERE "Pesticide" = %s', (replacement, name))
+                cursor.execute('DELETE FROM products WHERE "Product" = %s', (name,))
+                conn.commit()
+                cursor.close()
+                conn.close()
+                return jsonify({'status': 'success'})
+        else:
+            # Standard deletion
+            cursor.close()
+            conn.close()
+            repo.delete_product(name)
+            return jsonify({'status': 'success'})
+            
+    except Exception as e:
+        print(f"Error deleting product: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # --- Spray History Endpoints ---
 
