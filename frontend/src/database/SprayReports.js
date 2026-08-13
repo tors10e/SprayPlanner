@@ -17,6 +17,7 @@ function SprayReports() {
     const [timeRange, setTimeRange] = useState('past-year');
     const [expandedChems, setExpandedChems] = useState({});
     const [expandedBlocks, setExpandedBlocks] = useState({});
+    const [expandedPhiBlocks, setExpandedPhiBlocks] = useState({});
 
     useEffect(() => {
         fetchHistory();
@@ -257,8 +258,93 @@ function SprayReports() {
         }));
     };
 
+    const togglePhiBlockExpand = (block) => {
+        setExpandedPhiBlocks(prev => ({
+            ...prev,
+            [block]: !prev[block]
+        }));
+    };
+
+    const formatDate = (date) => {
+        if (!date) return '';
+        return (date.getMonth() + 1) + '/' + date.getDate() + '/' + String(date.getFullYear()).slice(-2);
+    };
+
+    const getPhiReportData = () => {
+        const blockData = {};
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        // Crucial Safety Rule: We look at the ENTIRE all-time history for PHI calculations
+        // so that active restrictions are never hidden by the dashboard date filter.
+        history.forEach(item => {
+            const block = item["Block "] || '';
+            if (!block) return;
+
+            const chem = item.Pesticide || 'Unknown Product';
+            const dateStr = item.Date || '';
+            const phiVal = item["PHI (d)"];
+            const phiDays = (phiVal !== null && phiVal !== undefined && phiVal !== "") ? parseInt(phiVal, 10) : 0;
+            
+            const sprayDate = parseDate(dateStr);
+            if (!sprayDate) return;
+
+            const harvestDate = new Date(sprayDate.getTime());
+            harvestDate.setDate(harvestDate.getDate() + phiDays);
+            
+            const tempHarvest = new Date(harvestDate.getTime());
+            tempHarvest.setHours(0, 0, 0, 0);
+            
+            // Calculate remaining calendar days
+            const diffTime = tempHarvest.getTime() - today.getTime();
+            const daysRemaining = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+
+            if (!blockData[block]) {
+                blockData[block] = {
+                    blockCode: block,
+                    status: 'Safe to Harvest',
+                    earliestHarvestDate: today,
+                    daysRemaining: 0,
+                    limitingChem: 'None',
+                    limitingDate: '',
+                    limitingPhi: 0,
+                    allSprays: []
+                };
+            }
+
+            const sprayInfo = {
+                chemical: chem,
+                date: dateStr,
+                phi: phiDays,
+                harvestDate: tempHarvest,
+                daysRemaining: daysRemaining,
+                isRestricted: daysRemaining > 0
+            };
+
+            blockData[block].allSprays.push(sprayInfo);
+
+            if (tempHarvest.getTime() > blockData[block].earliestHarvestDate.getTime()) {
+                blockData[block].earliestHarvestDate = tempHarvest;
+                blockData[block].daysRemaining = daysRemaining;
+                blockData[block].limitingChem = chem;
+                blockData[block].limitingDate = dateStr;
+                blockData[block].limitingPhi = phiDays;
+            }
+        });
+
+        return Object.values(blockData).map(b => {
+            const isRestricted = b.daysRemaining > 0;
+            b.allSprays.sort((a, b) => b.harvestDate.getTime() - a.harvestDate.getTime());
+            return {
+                ...b,
+                status: isRestricted ? 'Restricted' : 'Safe to Harvest'
+            };
+        }).sort((a, b) => a.blockCode.localeCompare(b.blockCode));
+    };
+
     const reportsData = getReportsData();
     const fracReportsData = getFracReportsData();
+    const phiReportData = getPhiReportData();
 
     // Summary stats
     const totalChemicalsUsed = new Set(filteredLogs.map(l => l.Pesticide).filter(Boolean)).size;
@@ -525,6 +611,130 @@ function SprayReports() {
                                                                     </div>
                                                                 </td>
                                                             </tr>
+                                                        )}
+                                                    </React.Fragment>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </Table>
+                                )}
+                            </Card.Body>
+                        </Card>
+
+                        {/* Pre-Harvest Interval (PHI) Harvest Safety Report */}
+                        <Card className="border-0 shadow-sm w-100 mt-4">
+                            <Card.Header className="bg-dark text-white py-3">
+                                <h5 className="m-0">Pre-Harvest Interval (PHI) Harvest Safety</h5>
+                            </Card.Header>
+                            <Card.Body className="p-0">
+                                {phiReportData.length === 0 ? (
+                                    <p className="text-muted italic p-4 text-center">No spray log records found to determine PHI constraints.</p>
+                                ) : (
+                                    <Table hover responsive className="m-0 bg-white">
+                                        <thead className="table-light">
+                                            <tr>
+                                                <th style={{ width: '15%' }}>Block Code</th>
+                                                <th className="text-center" style={{ width: '15%' }}>Harvest Status</th>
+                                                <th className="text-center" style={{ width: '20%' }}>Earliest Safe Harvest Date</th>
+                                                <th className="text-center" style={{ width: '15%' }}>Days Remaining</th>
+                                                <th style={{ width: '35%' }}>Limiting Chemical / Constraint</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {phiReportData.map(bRow => {
+                                                const isExpanded = !!expandedPhiBlocks[bRow.blockCode];
+                                                const isRestricted = bRow.daysRemaining > 0;
+                                                return (
+                                                    <React.Fragment key={bRow.blockCode}>
+                                                        <tr 
+                                                            onClick={() => togglePhiBlockExpand(bRow.blockCode)}
+                                                            style={{ cursor: 'pointer' }}
+                                                        >
+                                                            <td>
+                                                                <strong className="text-primary">{bRow.blockCode.toUpperCase()}</strong>
+                                                                <span className="text-muted small ms-2">
+                                                                    ({isExpanded ? 'click to collapse' : 'click to expand'})
+                                                                </span>
+                                                            </td>
+                                                            <td className="text-center">
+                                                                <Badge bg={isRestricted ? "danger" : "success"}>
+                                                                    {bRow.status}
+                                                                </Badge>
+                                                            </td>
+                                                            <td className="text-center">
+                                                                {isRestricted ? (
+                                                                    <strong>{formatDate(bRow.earliestHarvestDate)}</strong>
+                                                                ) : (
+                                                                    <span className="text-success font-weight-bold">Immediately</span>
+                                                                )}
+                                                            </td>
+                                                            <td className="text-center">
+                                                                {isRestricted ? (
+                                                                    <span className="text-danger font-weight-bold">{bRow.daysRemaining} days</span>
+                                                                ) : (
+                                                                    <span className="text-muted">0 days</span>
+                                                                )}
+                                                            </td>
+                                                            <td>
+                                                                {isRestricted ? (
+                                                                    <span>
+                                                                        {bRow.limitingChem} <span className="text-muted small">(sprayed on {bRow.limitingDate}, PHI: {bRow.limitingPhi}d)</span>
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-muted italic">No active PHI constraints</span>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                        {isExpanded && (
+                                                            <tr>
+                                                                <td colSpan={5} className="bg-light p-3">
+                                                                    <div className="border rounded shadow-sm overflow-hidden bg-white">
+                                                                        <div className="bg-secondary bg-opacity-10 py-2 px-3 border-bottom">
+                                                                            <span className="fw-semibold text-secondary small uppercase">
+                                                                                Pesticide Applications History & PHI Status for Block {bRow.blockCode.toUpperCase()}
+                                                                            </span>
+                                                                        </div>
+                                                                        <Table striped bordered hover size="sm" className="m-0">
+                                                                            <thead className="table-light">
+                                                                                <tr>
+                                                                                    <th>Chemical Product</th>
+                                                                                    <th className="text-center">Date Applied</th>
+                                                                                    <th className="text-center">PHI (days)</th>
+                                                                                    <th className="text-center">Projected Harvest Date</th>
+                                                                                    <th className="text-center">Days Remaining</th>
+                                                                                    <th className="text-center">Status</th>
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody>
+                                                                                {bRow.allSprays.map((s, idx) => (
+                                                                                    <tr key={idx}>
+                                                                                        <td>{s.chemical}</td>
+                                                                                        <td className="text-center">{s.date}</td>
+                                                                                        <td className="text-center">{s.phi} days</td>
+                                                                                        <td className="text-center">{formatDate(s.harvestDate)}</td>
+                                                                                        <td className="text-center">
+                                                                                            {s.daysRemaining > 0 ? (
+                                                                                                <span className="text-danger fw-bold">{s.daysRemaining} days</span>
+                                                                                            ) : (
+                                                                                                <span className="text-muted">0 days</span>
+                                                                                            )}
+                                                                                        </td>
+                                                                                        <td className="text-center">
+                                                                                            {s.daysRemaining > 0 ? (
+                                                                                                <Badge bg="danger">Active</Badge>
+                                                                                            ) : s.phi > 0 ? (
+                                                                                                <Badge bg="secondary">Exceeded</Badge>
+                                                                                            ) : (
+                                                                                                <Badge bg="light" text="dark">No PHI</Badge>
+                                                                                            )}
+                                                                                        </td>
+                                                                                    </tr>
+                                                                                ))}
+                                                                            </tbody>
+                                                                        </Table>
+                                                                    </div>
+                                                                </td>
+                                                             </tr>
                                                         )}
                                                     </React.Fragment>
                                                 );
