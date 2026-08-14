@@ -18,6 +18,7 @@ function SprayReports() {
     const [expandedChems, setExpandedChems] = useState({});
     const [expandedBlocks, setExpandedBlocks] = useState({});
     const [expandedPhiBlocks, setExpandedPhiBlocks] = useState({});
+    const [expandedReiBlocks, setExpandedReiBlocks] = useState({});
 
     useEffect(() => {
         fetchHistory();
@@ -342,9 +343,126 @@ function SprayReports() {
         }).sort((a, b) => a.blockCode.localeCompare(b.blockCode));
     };
 
+    const toggleReiBlockExpand = (block) => {
+        setExpandedReiBlocks(prev => ({
+            ...prev,
+            [block]: !prev[block]
+        }));
+    };
+
+    const formatDateTime = (date) => {
+        if (!date) return '';
+        const dStr = (date.getMonth() + 1) + '/' + date.getDate() + '/' + String(date.getFullYear()).slice(-2);
+        let hours = date.getHours();
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        hours = hours % 12;
+        hours = hours ? hours : 12;
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        return `${dStr} ${hours}:${minutes} ${ampm}`;
+    };
+
+    const parseDateTime = (dateStr, timeStr) => {
+        const d = parseDate(dateStr);
+        if (!d) return null;
+        
+        let hours = 0;
+        let minutes = 0;
+        if (timeStr) {
+            const cleanTime = String(timeStr).replace(/:/g, '').trim();
+            if (cleanTime.length === 4) {
+                hours = parseInt(cleanTime.slice(0, 2), 10);
+                minutes = parseInt(cleanTime.slice(2, 4), 10);
+            } else if (cleanTime.length === 3) {
+                hours = parseInt(cleanTime.slice(0, 1), 10);
+                minutes = parseInt(cleanTime.slice(1, 3), 10);
+            }
+        }
+        
+        const dt = new Date(d.getTime());
+        dt.setHours(hours, minutes, 0, 0);
+        return dt;
+    };
+
+    const getReiReportData = () => {
+        const blockData = {};
+        const now = new Date();
+
+        // Crucial Safety Rule: We look at the ENTIRE all-time history for REI calculations
+        // so that active restrictions are never hidden by the dashboard date filter.
+        history.forEach(item => {
+            const block = item["Block "] || '';
+            if (!block) return;
+
+            const chem = item.Pesticide || 'Unknown Product';
+            const dateStr = item.Date || '';
+            const timeStr = item["End Time"] || '';
+            const reiVal = item["REI (h)"];
+            const reiHours = (reiVal !== null && reiVal !== undefined && reiVal !== "") ? parseFloat(reiVal) : 0;
+            
+            const endDateTime = parseDateTime(dateStr, timeStr);
+            if (!endDateTime) return;
+
+            const safeReentryTime = new Date(endDateTime.getTime() + (reiHours * 60 * 60 * 1000));
+            
+            // Calculate remaining milliseconds
+            const diffMs = safeReentryTime.getTime() - now.getTime();
+            const isRestricted = diffMs > 0;
+            const hoursRemaining = isRestricted ? Math.floor(diffMs / (1000 * 60 * 60)) : 0;
+            const minutesRemaining = isRestricted ? Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60)) : 0;
+
+            if (!blockData[block]) {
+                blockData[block] = {
+                    blockCode: block,
+                    status: 'Safe to Enter',
+                    earliestReentryTime: now,
+                    hoursRemaining: 0,
+                    minutesRemaining: 0,
+                    limitingChem: 'None',
+                    limitingDate: '',
+                    limitingTime: '',
+                    limitingRei: 0,
+                    allSprays: []
+                };
+            }
+
+            const sprayInfo = {
+                chemical: chem,
+                date: dateStr,
+                endTime: timeStr,
+                rei: reiHours,
+                safeReentryTime: safeReentryTime,
+                hoursRemaining: hoursRemaining,
+                minutesRemaining: minutesRemaining,
+                isRestricted: isRestricted
+            };
+
+            blockData[block].allSprays.push(sprayInfo);
+
+            if (safeReentryTime.getTime() > blockData[block].earliestReentryTime.getTime()) {
+                blockData[block].earliestReentryTime = safeReentryTime;
+                blockData[block].hoursRemaining = hoursRemaining;
+                blockData[block].minutesRemaining = minutesRemaining;
+                blockData[block].limitingChem = chem;
+                blockData[block].limitingDate = dateStr;
+                blockData[block].limitingTime = timeStr;
+                blockData[block].limitingRei = reiHours;
+            }
+        });
+
+        return Object.values(blockData).map(b => {
+            const isRestricted = b.earliestReentryTime.getTime() > new Date().getTime();
+            b.allSprays.sort((a, b) => b.safeReentryTime.getTime() - a.safeReentryTime.getTime());
+            return {
+                ...b,
+                status: isRestricted ? 'Restricted' : 'Safe to Enter'
+            };
+        }).sort((a, b) => a.blockCode.localeCompare(b.blockCode));
+    };
+
     const reportsData = getReportsData();
     const fracReportsData = getFracReportsData();
     const phiReportData = getPhiReportData();
+    const reiReportData = getReiReportData();
 
     // Summary stats
     const totalChemicalsUsed = new Set(filteredLogs.map(l => l.Pesticide).filter(Boolean)).size;
@@ -726,6 +844,134 @@ function SprayReports() {
                                                                                                 <Badge bg="secondary">Exceeded</Badge>
                                                                                             ) : (
                                                                                                 <Badge bg="light" text="dark">No PHI</Badge>
+                                                                                            )}
+                                                                                        </td>
+                                                                                    </tr>
+                                                                                ))}
+                                                                            </tbody>
+                                                                        </Table>
+                                                                    </div>
+                                                                </td>
+                                                             </tr>
+                                                        )}
+                                                    </React.Fragment>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </Table>
+                                )}
+                            </Card.Body>
+                        </Card>
+
+                        {/* Restricted Entry Interval (REI) Entry Safety Report */}
+                        <Card className="border-0 shadow-sm w-100 mt-4">
+                            <Card.Header className="bg-dark text-white py-3">
+                                <h5 className="m-0">Restricted Entry Interval (REI) Entry Safety</h5>
+                            </Card.Header>
+                            <Card.Body className="p-0">
+                                {reiReportData.length === 0 ? (
+                                    <p className="text-muted italic p-4 text-center">No spray log records found to determine REI constraints.</p>
+                                ) : (
+                                    <Table hover responsive className="m-0 bg-white">
+                                        <thead className="table-light">
+                                            <tr>
+                                                <th style={{ width: '15%' }}>Block Code</th>
+                                                <th className="text-center" style={{ width: '15%' }}>Entry Status</th>
+                                                <th className="text-center" style={{ width: '20%' }}>Earliest Safe Entry Time</th>
+                                                <th className="text-center" style={{ width: '15%' }}>Time Remaining</th>
+                                                <th style={{ width: '35%' }}>Limiting Chemical / Constraint</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {reiReportData.map(bRow => {
+                                                const isExpanded = !!expandedReiBlocks[bRow.blockCode];
+                                                const isRestricted = bRow.status === 'Restricted';
+                                                return (
+                                                    <React.Fragment key={bRow.blockCode}>
+                                                        <tr 
+                                                            onClick={() => toggleReiBlockExpand(bRow.blockCode)}
+                                                            style={{ cursor: 'pointer' }}
+                                                        >
+                                                            <td>
+                                                                <strong className="text-primary">{bRow.blockCode.toUpperCase()}</strong>
+                                                                <span className="text-muted small ms-2">
+                                                                    ({isExpanded ? 'click to collapse' : 'click to expand'})
+                                                                </span>
+                                                            </td>
+                                                            <td className="text-center">
+                                                                <Badge bg={isRestricted ? "danger" : "success"}>
+                                                                    {bRow.status}
+                                                                </Badge>
+                                                            </td>
+                                                            <td className="text-center">
+                                                                {isRestricted ? (
+                                                                    <strong>{formatDateTime(bRow.earliestReentryTime)}</strong>
+                                                                ) : (
+                                                                    <span className="text-success font-weight-bold">Immediately</span>
+                                                                )}
+                                                            </td>
+                                                            <td className="text-center">
+                                                                {isRestricted ? (
+                                                                    <span className="text-danger font-weight-bold">
+                                                                        {bRow.hoursRemaining}h {bRow.minutesRemaining}m
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-muted">0 hours</span>
+                                                                )}
+                                                            </td>
+                                                            <td>
+                                                                {isRestricted ? (
+                                                                    <span>
+                                                                        {bRow.limitingChem} <span className="text-muted small">(ended on {bRow.limitingDate} at {bRow.limitingTime}, REI: {bRow.limitingRei}h)</span>
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-muted italic">No active REI constraints</span>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                        {isExpanded && (
+                                                            <tr>
+                                                                <td colSpan={5} className="bg-light p-3">
+                                                                    <div className="border rounded shadow-sm overflow-hidden bg-white">
+                                                                        <div className="bg-secondary bg-opacity-10 py-2 px-3 border-bottom">
+                                                                            <span className="fw-semibold text-secondary small uppercase">
+                                                                                Pesticide Applications History & REI Status for Block {bRow.blockCode.toUpperCase()}
+                                                                            </span>
+                                                                        </div>
+                                                                        <Table striped bordered hover size="sm" className="m-0">
+                                                                            <thead className="table-light">
+                                                                                <tr>
+                                                                                    <th>Chemical Product</th>
+                                                                                    <th className="text-center">Date Applied</th>
+                                                                                    <th className="text-center">End Time</th>
+                                                                                    <th className="text-center">REI (hours)</th>
+                                                                                    <th className="text-center">Safe Re-entry Time</th>
+                                                                                    <th className="text-center">Time Remaining</th>
+                                                                                    <th className="text-center">Status</th>
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody>
+                                                                                {bRow.allSprays.map((s, idx) => (
+                                                                                    <tr key={idx}>
+                                                                                        <td>{s.chemical}</td>
+                                                                                        <td className="text-center">{s.date}</td>
+                                                                                        <td className="text-center">{s.endTime}</td>
+                                                                                        <td className="text-center">{s.rei} hours</td>
+                                                                                        <td className="text-center">{formatDateTime(s.safeReentryTime)}</td>
+                                                                                        <td className="text-center">
+                                                                                            {s.isRestricted ? (
+                                                                                                <span className="text-danger fw-bold">{s.hoursRemaining}h {s.minutesRemaining}m</span>
+                                                                                            ) : (
+                                                                                                <span className="text-muted">0h 0m</span>
+                                                                                            )}
+                                                                                        </td>
+                                                                                        <td className="text-center">
+                                                                                            {s.isRestricted ? (
+                                                                                                <Badge bg="danger">Active</Badge>
+                                                                                            ) : s.rei > 0 ? (
+                                                                                                <Badge bg="secondary">Exceeded</Badge>
+                                                                                            ) : (
+                                                                                                <Badge bg="light" text="dark">No REI</Badge>
                                                                                             )}
                                                                                         </td>
                                                                                     </tr>
