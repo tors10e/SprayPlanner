@@ -5,6 +5,7 @@
     "bootstrap": "^5.2.2",
     "browserlist": "^1.0.1",
     "jquery": "^3.6.0",
+    "leaflet": "^1.9.4",
     "npm-watch": "^0.11.0",
     "react": "^18.3.1",
     "react-bootstrap": "^2.9.1",

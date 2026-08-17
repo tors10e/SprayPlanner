@@ -1,3 +1,4 @@
+import json
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from core.config import Config
@@ -586,13 +587,58 @@ def generate_spray_plan():
         print(f"Error generating spray plan: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+# GIS Helper functions for PostGIS coordinate serialization/deserialization
+def coords_to_wkt_polygon(coords):
+    if not coords or len(coords) < 3:
+        return None
+    try:
+        pts = list(coords)
+        if pts[0] != pts[-1]:
+            pts.append(pts[0])
+        wkt_pts = ", ".join(f"{p[1]} {p[0]}" for p in pts)
+        return f"POLYGON(({wkt_pts}))"
+    except Exception as e:
+        print(f"Error formatting coordinates to WKT: {e}")
+        return None
+
+def wkt_or_geojson_to_coords(geometry_data):
+    if not geometry_data:
+        return []
+    try:
+        if isinstance(geometry_data, str):
+            if geometry_data.startswith("{"):
+                geo = json.loads(geometry_data)
+                raw_coords = geo.get("coordinates", [[]])[0]
+                if raw_coords and len(raw_coords) > 1:
+                    return [[p[1], p[0]] for p in raw_coords[:-1]]
+            elif geometry_data.upper().startswith("POLYGON"):
+                clean = geometry_data.replace("POLYGON", "").replace("polygon", "").strip("() ")
+                pts = [list(map(float, pt.strip().split())) for pt in clean.split(",")]
+                if pts and len(pts) > 1:
+                    return [[p[1], p[0]] for p in pts[:-1]]
+        elif isinstance(geometry_data, dict):
+            raw_coords = geometry_data.get("coordinates", [[]])[0]
+            if raw_coords and len(raw_coords) > 1:
+                return [[p[1], p[0]] for p in raw_coords[:-1]]
+    except Exception as e:
+        print(f"Error parsing geometry data: {e}")
+    return []
+
 @app.route('/api/blocks', methods=['GET'])
 def get_vineyard_blocks():
     try:
         conn = repo._get_connection()
         cursor = conn.cursor()
         
-        cursor.execute('SELECT block_code, varieties, acres, vine_spacing, row_spacing, trellis_type, rootstock FROM vineyard_blocks ORDER BY block_code')
+        cursor.execute('''
+            SELECT 
+                block_code, varieties, acres, vine_spacing, row_spacing, trellis_type, rootstock,
+                ST_AsGeoJSON(block_area) as block_area,
+                ST_Y(ST_Centroid(block_area)) as centroid_lat,
+                ST_X(ST_Centroid(block_area)) as centroid_lng
+            FROM vineyard_blocks 
+            ORDER BY block_code
+        ''')
         blocks = cursor.fetchall()
         
         result = []
@@ -600,6 +646,11 @@ def get_vineyard_blocks():
             bcode = b[0]
             cursor.execute('SELECT row_number, row_length FROM vineyard_rows WHERE block_code = %s ORDER BY row_number', (bcode,))
             rows = [{"row_number": r[0], "row_length": r[1]} for r in cursor.fetchall()]
+            
+            block_area_coords = wkt_or_geojson_to_coords(b[7])
+            centroid_lat = b[8]
+            centroid_lng = b[9]
+            centroid = [centroid_lat, centroid_lng] if centroid_lat is not None and centroid_lng is not None else None
             
             result.append({
                 "block_code": b[0],
@@ -609,6 +660,8 @@ def get_vineyard_blocks():
                 "row_spacing": b[4],
                 "trellis_type": b[5],
                 "rootstock": b[6],
+                "block_area": block_area_coords,
+                "centroid": centroid,
                 "rows": rows
             })
         
@@ -636,16 +689,23 @@ def add_vineyard_block():
             conn.close()
             return jsonify({'status': 'error', 'message': f"Block '{bcode}' already exists"}), 400
 
+        wkt = coords_to_wkt_polygon(data.get("block_area"))
+
         cursor.execute(
-            'INSERT INTO vineyard_blocks (block_code, varieties, acres, vine_spacing, row_spacing, trellis_type, rootstock) VALUES (%s, %s, %s, %s, %s, %s, %s)',
+            '''
+            INSERT INTO vineyard_blocks (block_code, varieties, acres, vine_spacing, row_spacing, trellis_type, rootstock, block_area) 
+            VALUES (%s, %s, COALESCE(ST_Area(ST_GeomFromText(%s, 4326)::geography) / 4046.8564224, %s), %s, %s, %s, %s, ST_GeomFromText(%s, 4326))
+            ''',
             (
                 bcode,
                 data.get("varieties"),
+                wkt,
                 data.get("acres"),
                 data.get("vine_spacing"),
                 data.get("row_spacing"),
                 data.get("trellis_type"),
-                data.get("rootstock")
+                data.get("rootstock"),
+                wkt
             )
         )
         
@@ -672,16 +732,27 @@ def update_vineyard_block(block_code):
         conn = repo._get_connection()
         cursor = conn.cursor()
         
+        wkt = coords_to_wkt_polygon(data.get("block_area"))
+
         cursor.execute(
-            'UPDATE vineyard_blocks SET block_code=%s, varieties=%s, acres=%s, vine_spacing=%s, row_spacing=%s, trellis_type=%s, rootstock=%s WHERE block_code=%s',
+            '''
+            UPDATE vineyard_blocks 
+            SET block_code=%s, varieties=%s, 
+                acres=COALESCE(ST_Area(ST_GeomFromText(%s, 4326)::geography) / 4046.8564224, %s), 
+                vine_spacing=%s, row_spacing=%s, trellis_type=%s, rootstock=%s, 
+                block_area=ST_GeomFromText(%s, 4326) 
+            WHERE block_code=%s
+            ''',
             (
                 new_bcode,
                 data.get("varieties"),
+                wkt,
                 data.get("acres"),
                 data.get("vine_spacing"),
                 data.get("row_spacing"),
                 data.get("trellis_type"),
                 data.get("rootstock"),
+                wkt,
                 block_code
             )
         )

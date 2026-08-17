@@ -72,6 +72,15 @@ def migrate_csv_to_postgres():
                 cursor.execute("SELECT COUNT(*) FROM spray_history")
                 if cursor.fetchone()[0] > 0:
                     print("PostgreSQL database is already initialized and contains data. Skipping seeding/migrations.")
+                    # Run schema migration on existing DB to enable PostGIS and add the geometry column safely
+                    try:
+                        cursor.execute("CREATE EXTENSION IF NOT EXISTS postgis;")
+                        cursor.execute("ALTER TABLE vineyard_blocks ADD COLUMN IF NOT EXISTS block_area GEOMETRY(Polygon, 4326);")
+                        conn.commit()
+                        print("PostgreSQL schema migration completed: block_area column verified/added.")
+                    except Exception as migration_err:
+                        print("Error during database alteration migration:", migration_err)
+                        conn.rollback()
                     cursor.close()
                     conn.close()
                     return
@@ -234,6 +243,7 @@ def migrate_csv_to_postgres():
 
     # --- Recreate database tables in normalized 3-table schema ---
     print("Recreating database tables in normalized 3-table schema...")
+    cursor.execute('CREATE EXTENSION IF NOT EXISTS postgis;')
     cursor.execute('DROP TABLE IF EXISTS vineyard_rows CASCADE;')
     cursor.execute('DROP TABLE IF EXISTS vineyard_blocks CASCADE;')
     cursor.execute('DROP TABLE IF EXISTS spray_history CASCADE;')
@@ -248,7 +258,8 @@ def migrate_csv_to_postgres():
         vine_spacing DOUBLE PRECISION,
         row_spacing DOUBLE PRECISION,
         trellis_type VARCHAR(100),
-        rootstock VARCHAR(100)
+        rootstock VARCHAR(100),
+        block_area GEOMETRY(Polygon, 4326)
     );
     """
     cursor.execute(create_vineyard_blocks_table)
@@ -264,13 +275,35 @@ def migrate_csv_to_postgres():
     """
     cursor.execute(create_vineyard_rows_table)
 
+    # Helper to convert coordinates to WKT format
+    def coords_to_wkt_polygon(coords):
+        if not coords or len(coords) < 3:
+            return None
+        try:
+            pts = list(coords)
+            if pts[0] != pts[-1]:
+                pts.append(pts[0])
+            wkt_pts = ", ".join(f"{p[1]} {p[0]}" for p in pts)
+            return f"POLYGON(({wkt_pts}))"
+        except Exception as e:
+            print(f"Error formatting coordinates to WKT: {e}")
+            return None
+
     # Seed vineyard blocks and rows
     if "vineyard_blocks" in existing_data and existing_data["vineyard_blocks"]:
         print(f"Restoring {len(existing_data['vineyard_blocks'])} vineyard blocks...")
         for b in existing_data["vineyard_blocks"]:
+            block_area_data = b.get("block_area") or b.get("polygon")
+            wkt = None
+            if block_area_data:
+                if isinstance(block_area_data, str):
+                    wkt = block_area_data
+                else:
+                    wkt = coords_to_wkt_polygon(block_area_data)
+
             cursor.execute(
-                'INSERT INTO vineyard_blocks (block_code, varieties, acres, vine_spacing, row_spacing, trellis_type, rootstock) VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (block_code) DO NOTHING;',
-                (b["block_code"], b["varieties"], b["acres"], b["vine_spacing"], b["row_spacing"], b["trellis_type"], b["rootstock"])
+                'INSERT INTO vineyard_blocks (block_code, varieties, acres, vine_spacing, row_spacing, trellis_type, rootstock, block_area) VALUES (%s, %s, %s, %s, %s, %s, %s, ST_GeomFromText(%s, 4326)) ON CONFLICT (block_code) DO NOTHING;',
+                (b["block_code"], b["varieties"], b["acres"], b["vine_spacing"], b["row_spacing"], b["trellis_type"], b["rootstock"], wkt)
             )
         if "vineyard_rows" in existing_data and existing_data["vineyard_rows"]:
             print(f"Restoring {len(existing_data['vineyard_rows'])} vineyard rows...")
@@ -290,7 +323,7 @@ def migrate_csv_to_postgres():
         ]
         for bcode, var, ac, vs, rs, tr, rs_stock in default_blocks:
             cursor.execute(
-                'INSERT INTO vineyard_blocks (block_code, varieties, acres, vine_spacing, row_spacing, trellis_type, rootstock) VALUES (%s, %s, %s, %s, %s, %s, %s);',
+                'INSERT INTO vineyard_blocks (block_code, varieties, acres, vine_spacing, row_spacing, trellis_type, rootstock, block_area) VALUES (%s, %s, %s, %s, %s, %s, %s, NULL);',
                 (bcode, var, ac, vs, rs, tr, rs_stock)
             )
             for rnum in range(1, 11):

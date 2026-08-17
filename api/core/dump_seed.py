@@ -44,7 +44,11 @@ def dump_db_to_json():
         columns = [r[0] for r in cursor.fetchall()]
         
         # Get all rows
-        cursor.execute(f"SELECT * FROM {table}")
+        if table == "vineyard_blocks":
+            cols_str = ", ".join(f'"{c}"' if c != 'block_area' else 'ST_AsText(block_area) as block_area' for c in columns)
+            cursor.execute(f"SELECT {cols_str} FROM {table}")
+        else:
+            cursor.execute(f"SELECT * FROM {table}")
         rows = cursor.fetchall()
         
         # Convert rows to dicts
