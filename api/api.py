@@ -1,3 +1,4 @@
+import json
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from core.config import Config
@@ -11,7 +12,8 @@ from constraints.multi_year_rotation_constraint import MultiYearRotationConstrai
 from services.scheduler import Scheduler
 from services.mix_builder import MixBuilder
 from services.planner import Planner
-from datetime import datetime
+from datetime import datetime, timedelta
+from core.weather import get_block_weather_info
 import os
 import io
 import pandas as pd
@@ -586,13 +588,58 @@ def generate_spray_plan():
         print(f"Error generating spray plan: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+# GIS Helper functions for PostGIS coordinate serialization/deserialization
+def coords_to_wkt_polygon(coords):
+    if not coords or len(coords) < 3:
+        return None
+    try:
+        pts = list(coords)
+        if pts[0] != pts[-1]:
+            pts.append(pts[0])
+        wkt_pts = ", ".join(f"{p[1]} {p[0]}" for p in pts)
+        return f"POLYGON(({wkt_pts}))"
+    except Exception as e:
+        print(f"Error formatting coordinates to WKT: {e}")
+        return None
+
+def wkt_or_geojson_to_coords(geometry_data):
+    if not geometry_data:
+        return []
+    try:
+        if isinstance(geometry_data, str):
+            if geometry_data.startswith("{"):
+                geo = json.loads(geometry_data)
+                raw_coords = geo.get("coordinates", [[]])[0]
+                if raw_coords and len(raw_coords) > 1:
+                    return [[p[1], p[0]] for p in raw_coords[:-1]]
+            elif geometry_data.upper().startswith("POLYGON"):
+                clean = geometry_data.replace("POLYGON", "").replace("polygon", "").strip("() ")
+                pts = [list(map(float, pt.strip().split())) for pt in clean.split(",")]
+                if pts and len(pts) > 1:
+                    return [[p[1], p[0]] for p in pts[:-1]]
+        elif isinstance(geometry_data, dict):
+            raw_coords = geometry_data.get("coordinates", [[]])[0]
+            if raw_coords and len(raw_coords) > 1:
+                return [[p[1], p[0]] for p in raw_coords[:-1]]
+    except Exception as e:
+        print(f"Error parsing geometry data: {e}")
+    return []
+
 @app.route('/api/blocks', methods=['GET'])
 def get_vineyard_blocks():
     try:
         conn = repo._get_connection()
         cursor = conn.cursor()
         
-        cursor.execute('SELECT block_code, varieties, acres, vine_spacing, row_spacing, trellis_type, rootstock FROM vineyard_blocks ORDER BY block_code')
+        cursor.execute('''
+            SELECT 
+                block_code, varieties, acres, vine_spacing, row_spacing, trellis_type, rootstock,
+                ST_AsGeoJSON(block_area) as block_area,
+                ST_Y(ST_Centroid(block_area)) as centroid_lat,
+                ST_X(ST_Centroid(block_area)) as centroid_lng
+            FROM vineyard_blocks 
+            ORDER BY block_code
+        ''')
         blocks = cursor.fetchall()
         
         result = []
@@ -600,6 +647,11 @@ def get_vineyard_blocks():
             bcode = b[0]
             cursor.execute('SELECT row_number, row_length FROM vineyard_rows WHERE block_code = %s ORDER BY row_number', (bcode,))
             rows = [{"row_number": r[0], "row_length": r[1]} for r in cursor.fetchall()]
+            
+            block_area_coords = wkt_or_geojson_to_coords(b[7])
+            centroid_lat = b[8]
+            centroid_lng = b[9]
+            centroid = [centroid_lat, centroid_lng] if centroid_lat is not None and centroid_lng is not None else None
             
             result.append({
                 "block_code": b[0],
@@ -609,6 +661,8 @@ def get_vineyard_blocks():
                 "row_spacing": b[4],
                 "trellis_type": b[5],
                 "rootstock": b[6],
+                "block_area": block_area_coords,
+                "centroid": centroid,
                 "rows": rows
             })
         
@@ -636,16 +690,23 @@ def add_vineyard_block():
             conn.close()
             return jsonify({'status': 'error', 'message': f"Block '{bcode}' already exists"}), 400
 
+        wkt = coords_to_wkt_polygon(data.get("block_area"))
+
         cursor.execute(
-            'INSERT INTO vineyard_blocks (block_code, varieties, acres, vine_spacing, row_spacing, trellis_type, rootstock) VALUES (%s, %s, %s, %s, %s, %s, %s)',
+            '''
+            INSERT INTO vineyard_blocks (block_code, varieties, acres, vine_spacing, row_spacing, trellis_type, rootstock, block_area) 
+            VALUES (%s, %s, COALESCE(ST_Area(ST_GeomFromText(%s, 4326)::geography) / 4046.8564224, %s), %s, %s, %s, %s, ST_GeomFromText(%s, 4326))
+            ''',
             (
                 bcode,
                 data.get("varieties"),
+                wkt,
                 data.get("acres"),
                 data.get("vine_spacing"),
                 data.get("row_spacing"),
                 data.get("trellis_type"),
-                data.get("rootstock")
+                data.get("rootstock"),
+                wkt
             )
         )
         
@@ -672,16 +733,27 @@ def update_vineyard_block(block_code):
         conn = repo._get_connection()
         cursor = conn.cursor()
         
+        wkt = coords_to_wkt_polygon(data.get("block_area"))
+
         cursor.execute(
-            'UPDATE vineyard_blocks SET block_code=%s, varieties=%s, acres=%s, vine_spacing=%s, row_spacing=%s, trellis_type=%s, rootstock=%s WHERE block_code=%s',
+            '''
+            UPDATE vineyard_blocks 
+            SET block_code=%s, varieties=%s, 
+                acres=COALESCE(ST_Area(ST_GeomFromText(%s, 4326)::geography) / 4046.8564224, %s), 
+                vine_spacing=%s, row_spacing=%s, trellis_type=%s, rootstock=%s, 
+                block_area=ST_GeomFromText(%s, 4326) 
+            WHERE block_code=%s
+            ''',
             (
                 new_bcode,
                 data.get("varieties"),
+                wkt,
                 data.get("acres"),
                 data.get("vine_spacing"),
                 data.get("row_spacing"),
                 data.get("trellis_type"),
                 data.get("rootstock"),
+                wkt,
                 block_code
             )
         )
@@ -701,6 +773,213 @@ def update_vineyard_block(block_code):
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+# Helper to parse dates
+def parse_date_api(date_str):
+    if not date_str:
+        return None
+    for fmt in ('%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%Y/%m/%d', '%m/%d/%y'):
+        try:
+            return datetime.strptime(date_str.strip(), fmt)
+        except ValueError:
+            continue
+    return None
+
+@app.route('/api/settings', methods=['GET'])
+def get_settings():
+    try:
+        conn = repo._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT key, value FROM system_settings")
+        settings = {row[0]: row[1] for row in cursor.fetchall()}
+        cursor.close()
+        conn.close()
+        return jsonify(settings)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/settings', methods=['PUT'])
+def update_settings():
+    try:
+        data = request.json
+        conn = repo._get_connection()
+        cursor = conn.cursor()
+        for k, v in data.items():
+            cursor.execute(
+                "INSERT INTO system_settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                (k, str(v))
+            )
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/recommendations', methods=['GET'])
+def get_spray_recommendations():
+    try:
+        conn = repo._get_connection()
+        cursor = conn.cursor()
+        
+        # 1. Fetch system settings
+        cursor.execute("SELECT key, value FROM system_settings")
+        settings = {row[0]: row[1] for row in cursor.fetchall()}
+        
+        min_int = int(settings.get("min_spray_interval", 7))
+        max_int = int(settings.get("max_spray_interval", 14))
+        rain_thresh = float(settings.get("rain_threshold_inch", 1.0))
+        min_rain_free = int(settings.get("min_rain_free_hours", 12))
+        provider = settings.get("weather_provider", "NOAA")
+        w_api_key = settings.get("wunderground_api_key", "")
+        w_station_id = settings.get("wunderground_station_id", "KGALAKEM20")
+        
+        # 2. Fetch all blocks
+        cursor.execute("""
+            SELECT block_code, ST_Y(ST_Centroid(block_area)), ST_X(ST_Centroid(block_area)) 
+            FROM vineyard_blocks 
+            ORDER BY block_code
+        """)
+        blocks = cursor.fetchall()
+        
+        results = []
+        today = datetime.now().date()
+        
+        for bcode, centroid_lat, centroid_lng in blocks:
+            # Default location: Clarkesville, GA
+            lat = centroid_lat if centroid_lat is not None else 34.7333066
+            lng = centroid_lng if centroid_lng is not None else -83.5026561
+            
+            # Fetch last spray date for this block
+            cursor.execute("""
+                SELECT MAX(be."Date") 
+                FROM block_events be
+                JOIN spray_events se ON be.event_id = se.id
+                WHERE be."Block " = %s
+            """, (bcode,))
+            last_date_str = cursor.fetchone()[0]
+            
+            last_date = parse_date_api(last_date_str) if last_date_str else None
+            
+            if not last_date:
+                results.append({
+                    "block_code": bcode,
+                    "last_spray_date": None,
+                    "days_since_last_spray": None,
+                    "rain_since_last_spray": 0.0,
+                    "recommended_date": today.strftime("%Y-%m-%d"),
+                    "reason": "No previous spray event recorded in logs. Recommended to spray immediately.",
+                    "provider_source": "N/A"
+                })
+                continue
+                
+            last_date = last_date.date()
+            days_since = (today - last_date).days
+            
+            # Fetch weather forecast and history starting from the day after the last spray
+            start_fetch_date = (last_date + timedelta(days=1)).strftime("%Y-%m-%d")
+            weather = get_block_weather_info(
+                lat=lat,
+                lng=lng,
+                start_date_str=start_fetch_date,
+                provider=provider,
+                wunderground_api_key=w_api_key,
+                wunderground_station_id=w_station_id
+            )
+            
+            hist_rain = weather.get("historical_rain", 0.0)
+            forecast = weather.get("forecast", [])
+            source = weather.get("source", "NOAA")
+            
+            rec_date = None
+            reason = ""
+            
+            # Recommendation Logic
+            # Rule A: Cumulative rain has reached 1" since previous spray
+            if hist_rain >= rain_thresh:
+                # Find the next rain-free window of >= min_rain_free hours.
+                # In daily forecast, we find the first day starting today that has qpf == 0.
+                rain_free_day = None
+                for f in forecast:
+                    f_date = datetime.strptime(f["date"], "%Y-%m-%d").date()
+                    if f_date >= today:
+                        # Assuming qpf == 0 is rain free (provides at least 24h window)
+                        if f.get("qpf", 0.0) == 0.0:
+                            rain_free_day = f_date
+                            break
+                            
+                if rain_free_day:
+                    rec_date = rain_free_day
+                    reason = f"Rain threshold ({rain_thresh:.1f}\") exceeded: {hist_rain:.2f}\" accumulated since previous spray. Next rain-free day with >= {min_rain_free}h dry window is recommended."
+                else:
+                    # Fallback to tomorrow if no rain-free day in forecast
+                    rec_date = today + timedelta(days=1)
+                    reason = f"Rain threshold ({rain_thresh:.1f}\") exceeded: {hist_rain:.2f}\" accumulated. High precipitation in upcoming forecast. Spray as soon as window permits."
+            else:
+                # Rule B: Forecast shows rain in the min_int to max_int day window
+                rain_forecast_day = None
+                min_int_date = last_date + timedelta(days=min_int)
+                max_int_date = last_date + timedelta(days=max_int)
+                
+                for f in forecast:
+                    f_date = datetime.strptime(f["date"], "%Y-%m-%d").date()
+                    if min_int_date <= f_date <= max_int_date:
+                        # If rain is coming (QPF > 0.1" or high chance)
+                        if f.get("qpf", 0.0) > 0.1 or f.get("rain_chance", 0) >= 40:
+                            rain_forecast_day = f_date
+                            break
+                            
+                if rain_forecast_day:
+                    # Recommended date is the day before the rain starts (or min_int_date if that pushes it too early)
+                    target_date = rain_forecast_day - timedelta(days=1)
+                    if target_date < min_int_date:
+                        target_date = min_int_date
+                    rec_date = target_date
+                    reason = f"Rain forecasted on {rain_forecast_day.strftime('%m/%d/%Y')}. Recommended to spray before rain on {rec_date.strftime('%m/%d/%Y')} to protect foliage."
+                else:
+                    # Rule C: If dry, no rain, and no dew issues, push to max_int
+                    # Check if dew is forecasted on max_int day
+                    dew_on_max_day = False
+                    for f in forecast:
+                        f_date = datetime.strptime(f["date"], "%Y-%m-%d").date()
+                        if f_date == max_int_date:
+                            if f.get("has_dew", False):
+                                dew_on_max_day = True
+                                
+                    if dew_on_max_day:
+                        # Pull back by 1 day if dew is forecasted on the max interval day
+                        rec_date = max_int_date - timedelta(days=1)
+                        if rec_date < min_int_date:
+                            rec_date = min_int_date
+                        reason = f"Dry conditions. Dew predicted on max interval day. Pushed out to {rec_date.strftime('%m/%d/%Y')}."
+                    else:
+                        rec_date = max_int_date
+                        reason = f"Dry conditions and no rain forecasted. Next spray pushed out to maximum interval."
+            
+            # Default fallback safety checks
+            if not rec_date:
+                rec_date = last_date + timedelta(days=min_int)
+                reason = "Recommended spray date at standard interval."
+                
+            if rec_date < today:
+                # If calculated date is in the past, recommend spraying today or as soon as possible
+                rec_date = today
+                reason = f"Interval exceeded ({days_since} days since last spray). Spray as soon as possible."
+                
+            results.append({
+                "block_code": bcode,
+                "last_spray_date": last_date.strftime("%Y-%m-%d"),
+                "days_since_last_spray": days_since,
+                "rain_since_last_spray": round(hist_rain, 2),
+                "recommended_date": rec_date.strftime("%Y-%m-%d"),
+                "reason": reason,
+                "provider_source": source
+            })
+            
+        cursor.close()
+        conn.close()
+        return jsonify(results)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 @app.route('/api/blocks/<block_code>', methods=['DELETE'])
 def delete_vineyard_block(block_code):
     try:
@@ -716,4 +995,3 @@ def delete_vineyard_block(block_code):
 
 if __name__ == '__main__':
     app.run(debug=True, port=5001)
-

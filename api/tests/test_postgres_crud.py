@@ -188,10 +188,15 @@ def test_vineyard_blocks_crud(repo):
     cursor.execute("DELETE FROM vineyard_blocks WHERE block_code = %s", ("test_b1",))
     conn.commit()
     
-    # 2. Insert block
+    # 2. Insert block with PostGIS polygon geometry and dynamic acreage calculation
+    # A polygon of ~2.44 acres centered near Clarkesville, GA
+    wkt = "POLYGON((-83.5026 34.7333, -83.5026 34.7342, -83.5015 34.7342, -83.5015 34.7333, -83.5026 34.7333))"
     cursor.execute(
-        "INSERT INTO vineyard_blocks (block_code, varieties, acres, vine_spacing, row_spacing, trellis_type, rootstock) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-        ("test_b1", "Test Merlot", 2.5, 6.0, 9.0, "VSP", "3309C")
+        '''
+        INSERT INTO vineyard_blocks (block_code, varieties, acres, vine_spacing, row_spacing, trellis_type, rootstock, block_area) 
+        VALUES (%s, %s, COALESCE(ST_Area(ST_GeomFromText(%s, 4326)::geography) / 4046.8564224, %s), %s, %s, %s, %s, ST_GeomFromText(%s, 4326))
+        ''',
+        ("test_b1", "Test Merlot", wkt, 2.5, 6.0, 9.0, "VSP", "3309C", wkt)
     )
     
     # 3. Insert rows
@@ -199,10 +204,16 @@ def test_vineyard_blocks_crud(repo):
     cursor.execute("INSERT INTO vineyard_rows (block_code, row_number, row_length) VALUES (%s, %s, %s)", ("test_b1", 2, 280.0))
     conn.commit()
     
-    # 4. Verify insertion
-    cursor.execute("SELECT varieties, acres, vine_spacing FROM vineyard_blocks WHERE block_code = %s", ("test_b1",))
+    # 4. Verify insertion, dynamic acreage calculation, and spatial values (Centroid)
+    cursor.execute("SELECT varieties, acres, ST_AsText(block_area), ST_Y(ST_Centroid(block_area)), ST_X(ST_Centroid(block_area)) FROM vineyard_blocks WHERE block_code = %s", ("test_b1",))
     block = cursor.fetchone()
-    assert block == ("Test Merlot", 2.5, 6.0)
+    assert block[0] == "Test Merlot"
+    # Verify that the calculated acres is close to 2.44 and is NOT the fallback 2.5
+    assert abs(block[1] - 2.44) < 0.2
+    assert block[1] != 2.5
+    assert block[2] is not None
+    assert block[3] is not None
+    assert block[4] is not None
     
     cursor.execute("SELECT row_number, row_length FROM vineyard_rows WHERE block_code = %s ORDER BY row_number", ("test_b1",))
     rows = cursor.fetchall()
@@ -220,5 +231,3 @@ def test_vineyard_blocks_crud(repo):
     
     cursor.close()
     conn.close()
-
-
