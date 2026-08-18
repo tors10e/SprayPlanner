@@ -9,7 +9,12 @@ import Badge from 'react-bootstrap/Badge';
 import Spinner from 'react-bootstrap/Spinner';
 import TerraNavbar from '../components/navbar';
 
-const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:5001/api/history' : '/api/history';
+const getApiUrl = (path) => {
+    if (window.location.port === '3000') {
+        return `http://${window.location.hostname}:5001/api${path}`;
+    }
+    return `/api${path}`;
+};
 
 function SprayReports() {
     const [history, setHistory] = useState([]);
@@ -19,14 +24,17 @@ function SprayReports() {
     const [expandedBlocks, setExpandedBlocks] = useState({});
     const [expandedPhiBlocks, setExpandedPhiBlocks] = useState({});
     const [expandedReiBlocks, setExpandedReiBlocks] = useState({});
+    const [recommendations, setRecommendations] = useState([]);
+    const [recsLoading, setRecsLoading] = useState(true);
 
     useEffect(() => {
         fetchHistory();
+        fetchRecommendations();
     }, []);
 
     const fetchHistory = async () => {
         try {
-            const response = await fetch(API_BASE);
+            const response = await fetch(getApiUrl('/history'));
             if (response.ok) {
                 const data = await response.json();
                 setHistory(data);
@@ -35,6 +43,21 @@ function SprayReports() {
             console.error('Error fetching history:', error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchRecommendations = async () => {
+        setRecsLoading(true);
+        try {
+            const response = await fetch(getApiUrl('/recommendations'));
+            if (response.ok) {
+                const data = await response.json();
+                setRecommendations(data);
+            }
+        } catch (error) {
+            console.error('Error fetching recommendations:', error);
+        } finally {
+            setRecsLoading(false);
         }
     };
 
@@ -268,7 +291,9 @@ function SprayReports() {
 
     const formatDate = (date) => {
         if (!date) return '';
-        return (date.getMonth() + 1) + '/' + date.getDate() + '/' + String(date.getFullYear()).slice(-2);
+        const d = typeof date === 'string' ? parseDate(date) : date;
+        if (!d || isNaN(d.getTime())) return String(date);
+        return (d.getMonth() + 1) + '/' + d.getDate() + '/' + String(d.getFullYear()).slice(-2);
     };
 
     const getPhiReportData = () => {
@@ -983,6 +1008,77 @@ function SprayReports() {
                                                              </tr>
                                                         )}
                                                     </React.Fragment>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </Table>
+                                )}
+                            </Card.Body>
+                        </Card>
+
+                        {/* Next Spray Recommendation Report */}
+                        <Card className="border-0 shadow-sm w-100 mt-4 mb-5">
+                            <Card.Header className="bg-dark text-white py-3">
+                                <h5 className="m-0">Next Spray Recommendations</h5>
+                            </Card.Header>
+                            <Card.Body className="p-0">
+                                {recsLoading ? (
+                                    <div className="p-4 text-center text-muted">
+                                        <Spinner animation="border" size="sm" variant="primary" className="me-2" />
+                                        Fetching weather predictions and calculating next spray dates...
+                                    </div>
+                                ) : recommendations.length === 0 ? (
+                                    <p className="text-muted italic p-4 text-center">No blocks registered or recommendations available.</p>
+                                ) : (
+                                    <Table hover responsive className="m-0 bg-white">
+                                        <thead className="table-light">
+                                            <tr>
+                                                <th style={{ width: '15%' }}>Block Code</th>
+                                                <th className="text-center" style={{ width: '15%' }}>Previous Spray Date</th>
+                                                <th className="text-center" style={{ width: '15%' }}>Days Since</th>
+                                                <th className="text-center" style={{ width: '15%' }}>Rain Since Spray</th>
+                                                <th className="text-center" style={{ width: '15%' }}>Recommended Spray Date</th>
+                                                <th>Recommendation Rationale</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {recommendations.map(r => {
+                                                const daysSinceText = r.days_since_last_spray !== null ? `${r.days_since_last_spray} days` : 'N/A';
+                                                
+                                                // Highlight blocks that are overdue (e.g. recommended date <= today or days since >= 14)
+                                                const todayStr = new Date().toISOString().split('T')[0];
+                                                const isOverdue = r.recommended_date <= todayStr;
+                                                
+                                                return (
+                                                    <tr key={r.block_code}>
+                                                        <td>
+                                                            <strong className="text-primary">{r.block_code.toUpperCase()}</strong>
+                                                            {r.provider_source && r.provider_source !== 'N/A' && (
+                                                                <div className="small text-muted" style={{ fontSize: '10px' }}>
+                                                                    via {r.provider_source}
+                                                                </div>
+                                                            )}
+                                                        </td>
+                                                        <td className="text-center">
+                                                            {r.last_spray_date ? formatDate(r.last_spray_date) : <span className="text-muted">-</span>}
+                                                        </td>
+                                                        <td className="text-center text-secondary">
+                                                            {daysSinceText}
+                                                        </td>
+                                                        <td className="text-center">
+                                                            <span className={r.rain_since_last_spray >= 1.0 ? "text-danger font-weight-bold" : "text-muted"}>
+                                                                {r.rain_since_last_spray}"
+                                                            </span>
+                                                        </td>
+                                                        <td className="text-center">
+                                                            <Badge bg={isOverdue ? "danger" : "info"} style={{ fontSize: '13px' }}>
+                                                                {formatDate(r.recommended_date)}
+                                                            </Badge>
+                                                        </td>
+                                                        <td className="small">
+                                                            {r.reason}
+                                                        </td>
+                                                    </tr>
                                                 );
                                             })}
                                         </tbody>

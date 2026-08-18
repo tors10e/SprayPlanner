@@ -76,8 +76,25 @@ def migrate_csv_to_postgres():
                     try:
                         cursor.execute("CREATE EXTENSION IF NOT EXISTS postgis;")
                         cursor.execute("ALTER TABLE vineyard_blocks ADD COLUMN IF NOT EXISTS block_area GEOMETRY(Polygon, 4326);")
+                        cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS system_settings (
+                            key VARCHAR(100) PRIMARY KEY,
+                            value VARCHAR(500)
+                        );
+                        """)
+                        defaults = {
+                            "min_spray_interval": "7",
+                            "max_spray_interval": "14",
+                            "rain_threshold_inch": "1.0",
+                            "min_rain_free_hours": "12",
+                            "wunderground_api_key": "",
+                            "wunderground_station_id": "KGALAKEM20",
+                            "weather_provider": "NOAA"
+                        }
+                        for k, v in defaults.items():
+                            cursor.execute("INSERT INTO system_settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING;", (k, v))
                         conn.commit()
-                        print("PostgreSQL schema migration completed: block_area column verified/added.")
+                        print("PostgreSQL schema migration completed: block_area and system_settings verified/added.")
                     except Exception as migration_err:
                         print("Error during database alteration migration:", migration_err)
                         conn.rollback()
@@ -373,6 +390,26 @@ def migrate_csv_to_postgres():
     );
     """
     cursor.execute(create_history_table)
+
+    print("Creating 'system_settings' table...")
+    cursor.execute('DROP TABLE IF EXISTS system_settings CASCADE;')
+    cursor.execute("""
+    CREATE TABLE system_settings (
+        key VARCHAR(100) PRIMARY KEY,
+        value VARCHAR(500)
+    );
+    """)
+    defaults = {
+        "min_spray_interval": "7",
+        "max_spray_interval": "14",
+        "rain_threshold_inch": "1.0",
+        "min_rain_free_hours": "12",
+        "wunderground_api_key": "",
+        "wunderground_station_id": "KGALAKEM20",
+        "weather_provider": "NOAA"
+    }
+    for k, v in defaults.items():
+        cursor.execute("INSERT INTO system_settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING;", (k, v))
 
     if "spray_events" in existing_data and existing_data["spray_events"]:
         print(f"Restoring {len(existing_data['spray_events'])} spray events...")

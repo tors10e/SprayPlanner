@@ -12,7 +12,8 @@ from constraints.multi_year_rotation_constraint import MultiYearRotationConstrai
 from services.scheduler import Scheduler
 from services.mix_builder import MixBuilder
 from services.planner import Planner
-from datetime import datetime
+from datetime import datetime, timedelta
+from core.weather import get_block_weather_info
 import os
 import io
 import pandas as pd
@@ -772,6 +773,213 @@ def update_vineyard_block(block_code):
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+# Helper to parse dates
+def parse_date_api(date_str):
+    if not date_str:
+        return None
+    for fmt in ('%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%Y/%m/%d', '%m/%d/%y'):
+        try:
+            return datetime.strptime(date_str.strip(), fmt)
+        except ValueError:
+            continue
+    return None
+
+@app.route('/api/settings', methods=['GET'])
+def get_settings():
+    try:
+        conn = repo._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT key, value FROM system_settings")
+        settings = {row[0]: row[1] for row in cursor.fetchall()}
+        cursor.close()
+        conn.close()
+        return jsonify(settings)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/settings', methods=['PUT'])
+def update_settings():
+    try:
+        data = request.json
+        conn = repo._get_connection()
+        cursor = conn.cursor()
+        for k, v in data.items():
+            cursor.execute(
+                "INSERT INTO system_settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                (k, str(v))
+            )
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/recommendations', methods=['GET'])
+def get_spray_recommendations():
+    try:
+        conn = repo._get_connection()
+        cursor = conn.cursor()
+        
+        # 1. Fetch system settings
+        cursor.execute("SELECT key, value FROM system_settings")
+        settings = {row[0]: row[1] for row in cursor.fetchall()}
+        
+        min_int = int(settings.get("min_spray_interval", 7))
+        max_int = int(settings.get("max_spray_interval", 14))
+        rain_thresh = float(settings.get("rain_threshold_inch", 1.0))
+        min_rain_free = int(settings.get("min_rain_free_hours", 12))
+        provider = settings.get("weather_provider", "NOAA")
+        w_api_key = settings.get("wunderground_api_key", "")
+        w_station_id = settings.get("wunderground_station_id", "KGALAKEM20")
+        
+        # 2. Fetch all blocks
+        cursor.execute("""
+            SELECT block_code, ST_Y(ST_Centroid(block_area)), ST_X(ST_Centroid(block_area)) 
+            FROM vineyard_blocks 
+            ORDER BY block_code
+        """)
+        blocks = cursor.fetchall()
+        
+        results = []
+        today = datetime.now().date()
+        
+        for bcode, centroid_lat, centroid_lng in blocks:
+            # Default location: Clarkesville, GA
+            lat = centroid_lat if centroid_lat is not None else 34.7333066
+            lng = centroid_lng if centroid_lng is not None else -83.5026561
+            
+            # Fetch last spray date for this block
+            cursor.execute("""
+                SELECT MAX(be."Date") 
+                FROM block_events be
+                JOIN spray_events se ON be.event_id = se.id
+                WHERE be."Block " = %s
+            """, (bcode,))
+            last_date_str = cursor.fetchone()[0]
+            
+            last_date = parse_date_api(last_date_str) if last_date_str else None
+            
+            if not last_date:
+                results.append({
+                    "block_code": bcode,
+                    "last_spray_date": None,
+                    "days_since_last_spray": None,
+                    "rain_since_last_spray": 0.0,
+                    "recommended_date": today.strftime("%Y-%m-%d"),
+                    "reason": "No previous spray event recorded in logs. Recommended to spray immediately.",
+                    "provider_source": "N/A"
+                })
+                continue
+                
+            last_date = last_date.date()
+            days_since = (today - last_date).days
+            
+            # Fetch weather forecast and history starting from the day after the last spray
+            start_fetch_date = (last_date + timedelta(days=1)).strftime("%Y-%m-%d")
+            weather = get_block_weather_info(
+                lat=lat,
+                lng=lng,
+                start_date_str=start_fetch_date,
+                provider=provider,
+                wunderground_api_key=w_api_key,
+                wunderground_station_id=w_station_id
+            )
+            
+            hist_rain = weather.get("historical_rain", 0.0)
+            forecast = weather.get("forecast", [])
+            source = weather.get("source", "NOAA")
+            
+            rec_date = None
+            reason = ""
+            
+            # Recommendation Logic
+            # Rule A: Cumulative rain has reached 1" since previous spray
+            if hist_rain >= rain_thresh:
+                # Find the next rain-free window of >= min_rain_free hours.
+                # In daily forecast, we find the first day starting today that has qpf == 0.
+                rain_free_day = None
+                for f in forecast:
+                    f_date = datetime.strptime(f["date"], "%Y-%m-%d").date()
+                    if f_date >= today:
+                        # Assuming qpf == 0 is rain free (provides at least 24h window)
+                        if f.get("qpf", 0.0) == 0.0:
+                            rain_free_day = f_date
+                            break
+                            
+                if rain_free_day:
+                    rec_date = rain_free_day
+                    reason = f"Rain threshold ({rain_thresh:.1f}\") exceeded: {hist_rain:.2f}\" accumulated since previous spray. Next rain-free day with >= {min_rain_free}h dry window is recommended."
+                else:
+                    # Fallback to tomorrow if no rain-free day in forecast
+                    rec_date = today + timedelta(days=1)
+                    reason = f"Rain threshold ({rain_thresh:.1f}\") exceeded: {hist_rain:.2f}\" accumulated. High precipitation in upcoming forecast. Spray as soon as window permits."
+            else:
+                # Rule B: Forecast shows rain in the min_int to max_int day window
+                rain_forecast_day = None
+                min_int_date = last_date + timedelta(days=min_int)
+                max_int_date = last_date + timedelta(days=max_int)
+                
+                for f in forecast:
+                    f_date = datetime.strptime(f["date"], "%Y-%m-%d").date()
+                    if min_int_date <= f_date <= max_int_date:
+                        # If rain is coming (QPF > 0.1" or high chance)
+                        if f.get("qpf", 0.0) > 0.1 or f.get("rain_chance", 0) >= 40:
+                            rain_forecast_day = f_date
+                            break
+                            
+                if rain_forecast_day:
+                    # Recommended date is the day before the rain starts (or min_int_date if that pushes it too early)
+                    target_date = rain_forecast_day - timedelta(days=1)
+                    if target_date < min_int_date:
+                        target_date = min_int_date
+                    rec_date = target_date
+                    reason = f"Rain forecasted on {rain_forecast_day.strftime('%m/%d/%Y')}. Recommended to spray before rain on {rec_date.strftime('%m/%d/%Y')} to protect foliage."
+                else:
+                    # Rule C: If dry, no rain, and no dew issues, push to max_int
+                    # Check if dew is forecasted on max_int day
+                    dew_on_max_day = False
+                    for f in forecast:
+                        f_date = datetime.strptime(f["date"], "%Y-%m-%d").date()
+                        if f_date == max_int_date:
+                            if f.get("has_dew", False):
+                                dew_on_max_day = True
+                                
+                    if dew_on_max_day:
+                        # Pull back by 1 day if dew is forecasted on the max interval day
+                        rec_date = max_int_date - timedelta(days=1)
+                        if rec_date < min_int_date:
+                            rec_date = min_int_date
+                        reason = f"Dry conditions. Dew predicted on max interval day. Pushed out to {rec_date.strftime('%m/%d/%Y')}."
+                    else:
+                        rec_date = max_int_date
+                        reason = f"Dry conditions and no rain forecasted. Next spray pushed out to maximum interval."
+            
+            # Default fallback safety checks
+            if not rec_date:
+                rec_date = last_date + timedelta(days=min_int)
+                reason = "Recommended spray date at standard interval."
+                
+            if rec_date < today:
+                # If calculated date is in the past, recommend spraying today or as soon as possible
+                rec_date = today
+                reason = f"Interval exceeded ({days_since} days since last spray). Spray as soon as possible."
+                
+            results.append({
+                "block_code": bcode,
+                "last_spray_date": last_date.strftime("%Y-%m-%d"),
+                "days_since_last_spray": days_since,
+                "rain_since_last_spray": round(hist_rain, 2),
+                "recommended_date": rec_date.strftime("%Y-%m-%d"),
+                "reason": reason,
+                "provider_source": source
+            })
+            
+        cursor.close()
+        conn.close()
+        return jsonify(results)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 @app.route('/api/blocks/<block_code>', methods=['DELETE'])
 def delete_vineyard_block(block_code):
     try:
@@ -787,4 +995,3 @@ def delete_vineyard_block(block_code):
 
 if __name__ == '__main__':
     app.run(debug=True, port=5001)
-
