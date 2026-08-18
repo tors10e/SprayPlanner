@@ -3,6 +3,9 @@ import { Container, Row, Col, Card, Table, Button, Modal, Form, Badge, InputGrou
 import ReactGA from 'react-ga4';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import Header from "../components/header";
+import NavBar from "../components/navbar";
+import Footer from "../components/footer";
 
 const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:5001/api/blocks' : '/api/blocks';
 
@@ -478,16 +481,20 @@ const VineyardBlocks = () => {
     };
 
     return (
-        <Container fluid className="py-4 px-md-5">
-            <div className="d-flex justify-content-between align-items-center mb-4">
-                <div>
-                    <h1 className="h2 m-0 text-dark">Vineyard Blocks</h1>
-                    <p className="text-secondary m-0">Configure your blocks, row configurations, and manage overall vine density.</p>
+        <Container fluid className="px-0 w-100">
+            <Row><Header /></Row>
+            <Row className="navbar"><NavBar /></Row>
+            
+            <Container fluid className="py-4 px-md-5">
+                <div className="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h1 className="h2 m-0 text-dark">Vineyard Blocks</h1>
+                        <p className="text-secondary m-0">Configure your blocks, row configurations, and manage overall vine density.</p>
+                    </div>
+                    <Button variant="success" size="lg" className="shadow-sm" onClick={() => handleShow()}>
+                        + Add Vineyard Block
+                    </Button>
                 </div>
-                <Button variant="success" size="lg" className="shadow-sm" onClick={() => handleShow()}>
-                    + Add Vineyard Block
-                </Button>
-            </div>
 
             {/* Overview Vineyard Map */}
             {!loading && blocks.length > 0 && (
@@ -874,6 +881,10 @@ const VineyardBlocks = () => {
                     </Modal.Header>
                 </Form>
             </Modal>
+            
+            </Container>
+            
+            <Row><Footer /></Row>
         </Container>
     );
 };
