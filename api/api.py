@@ -458,10 +458,10 @@ def clone_spray_group():
             cursor.execute('SELECT id FROM spray_events WHERE "Spray #" = %s', (clean_new,))
             target_row = cursor.fetchone()
             if target_row:
-                target_event_id = target_row[0]
-            else:
-                cursor.execute('INSERT INTO spray_events ("Spray #") VALUES (%s) RETURNING id', (clean_new,))
-                target_event_id = cursor.fetchone()[0]
+                return jsonify({'status': 'error', 'message': f'Spray #{clean_new} already exists. Please choose a different target number.'}), 400
+                
+            cursor.execute('INSERT INTO spray_events ("Spray #") VALUES (%s) RETURNING id', (clean_new,))
+            target_event_id = cursor.fetchone()[0]
                 
             cursor.execute('SELECT id, "Block ", "Date", "End Time", "Liters/Acre" FROM block_events WHERE event_id = %s', (source_event_id,))
             blocks = cursor.fetchall()

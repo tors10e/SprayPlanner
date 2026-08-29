@@ -258,7 +258,28 @@ const ProductManagement = () => {
                             <Col md={6}>
                                 <Form.Group className="mb-3">
                                     <Form.Label>Primary Disease</Form.Label>
-                                    <Form.Control type="text" name="Primary Disease" value={formData['Primary Disease'] || ''} onChange={handleChange} />
+                                    <Form.Select 
+                                        name="Primary Disease" 
+                                        value={formData['Primary Disease'] || ''} 
+                                        onChange={handleChange}
+                                    >
+                                        <option value="">None</option>
+                                        <option value="powdery">Powdery Mildew</option>
+                                        <option value="downy">Downy Mildew</option>
+                                        <option value="black rot">Black Rot</option>
+                                        <option value="botrytis">Botrytis</option>
+                                        <option value="phomopsis">Phomopsis</option>
+                                        <option value="anthracnose">Anthracnose</option>
+                                        <option value="bitter rot">Bitter Rot</option>
+                                        <option value="sour rot">Sour Rot</option>
+                                        <option value="japanese beatles">Japanese Beetles</option>
+                                        <option value="berry moth">Grape Berry Moth</option>
+                                        {formData['Primary Disease'] && ![
+                                            "", "powdery", "downy", "black rot", "botrytis", "phomopsis", "anthracnose", "bitter rot", "sour rot", "japanese beatles", "berry moth"
+                                        ].includes(formData['Primary Disease']) && (
+                                            <option value={formData['Primary Disease']}>{formData['Primary Disease']}</option>
+                                        )}
+                                    </Form.Select>
                                 </Form.Group>
                             </Col>
                         </Row>
@@ -278,7 +299,12 @@ const ProductManagement = () => {
                             <Col md={3}>
                                 <Form.Group className="mb-3">
                                     <Form.Label>Signal Word</Form.Label>
-                                    <Form.Control type="text" name="Singal Word" value={formData['Singal Word'] || ''} onChange={handleChange} placeholder="caution, warning" />
+                                    <Form.Select name="Singal Word" value={formData['Singal Word'] || ''} onChange={handleChange}>
+                                        <option value="">None</option>
+                                        <option value="caution">Caution</option>
+                                        <option value="warning">Warning</option>
+                                        <option value="danger">Danger</option>
+                                    </Form.Select>
                                 </Form.Group>
                             </Col>
                         </Row>
@@ -482,7 +508,7 @@ const ProductManagement = () => {
                 </Modal.Header>
                 <Modal.Body>
                     <p>
-                        The product <strong>{productToDelete}</strong> is currently referenced in <strong>{usageCount}</strong> spray history entries.
+                        The product <strong>{productToDelete}</strong> is currently referenced in <strong>{usageCount}</strong> pesticide application entries.
                     </p>
                     <p>
                         Please choose a replacement product to update those historical entries with:

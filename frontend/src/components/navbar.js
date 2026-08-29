@@ -10,7 +10,7 @@ function TerraNavbar(props) {
         <Navbar.Collapse id="basic-navbar-nav">
             <Nav className="m-auto">
               <Nav.Link href="/spray-products">Spray Products</Nav.Link>
-              <Nav.Link href="/history">Spray History</Nav.Link>
+              <Nav.Link href="/history">Pesticide Application</Nav.Link>
               <Nav.Link href="/planner">Spray Planner</Nav.Link>
               <Nav.Link href="/reports">Reports</Nav.Link>
               <Nav.Link href="/vineyard-blocks">Vineyard Blocks</Nav.Link>

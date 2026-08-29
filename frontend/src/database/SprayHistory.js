@@ -77,7 +77,7 @@ const calculateReiTime = (endTimeStr, reiHours) => {
 };
 
 const SprayHistory = () => {
-    ReactGA.send({ hitType: "pageview", page: "/history", title: "Spray History" });
+    ReactGA.send({ hitType: "pageview", page: "/history", title: "Pesticide Application" });
 
     const [history, setHistory] = useState([]);
     const [products, setProducts] = useState([]);
@@ -314,15 +314,15 @@ const SprayHistory = () => {
                 body: JSON.stringify(payload)
             });
             if (response.ok) {
-                alert("Block spray event saved successfully!");
+                alert("Block spray application saved successfully!");
                 fetchHistory();
                 handleClose();
             } else {
                 const errorData = await response.text();
-                alert("Error saving block event: " + response.status + " " + errorData);
+                alert("Error saving block application: " + response.status + " " + errorData);
             }
         } catch (error) {
-            console.error("Error saving block event:", error);
+            console.error("Error saving block application:", error);
             alert("Network error: " + error.message);
         }
     };
@@ -339,10 +339,10 @@ const SprayHistory = () => {
                 if (response.ok) {
                     fetchHistory();
                 } else {
-                    alert("Error deleting event: " + response.statusText);
+                    alert("Error deleting application: " + response.statusText);
                 }
             } catch (error) {
-                console.error("Error deleting event:", error);
+                console.error("Error deleting application:", error);
             }
         }
     };
@@ -372,7 +372,7 @@ const SprayHistory = () => {
         }
     };
     const handleDeleteSprayGroup = async (sprayNumber, eventId) => {
-        if (window.confirm(`Are you sure you want to delete the entire Spray #${sprayNumber} (including all of its block events and chemicals)?`)) {
+        if (window.confirm(`Are you sure you want to delete the entire Spray #${sprayNumber} (including all of its block applications and chemicals)?`)) {
             try {
                 const response = await fetch(`${HISTORY_API}/delete_spray_group`, {
                     method: 'POST',
@@ -406,7 +406,8 @@ const SprayHistory = () => {
                     alert(`Successfully cloned Spray #${sprayNumber} to Spray #${newNum}!`);
                     fetchHistory();
                 } else {
-                    alert("Error cloning spray: " + response.statusText);
+                    const errorData = await response.json().catch(() => ({}));
+                    alert("Error cloning spray: " + (errorData.message || response.statusText));
                 }
             } catch (error) {
                 console.error("Error cloning spray:", error);
@@ -645,7 +646,7 @@ const SprayHistory = () => {
                 {/* ── Actions (Add & Upload CSV) ── */}
                 <Row className="mb-3 align-items-center">
                     <Col md={6}>
-                        <Button variant="primary" onClick={() => handleShow()} className="me-2">Add Spray Event</Button>
+                        <Button variant="primary" onClick={() => handleShow()} className="me-2">Add Spray Application</Button>
                         <Button variant="outline-primary" onClick={exportToCsv}>Export CSV</Button>
                     </Col>
                     <Col md={6} className="text-md-end mt-2 mt-md-0">
@@ -671,7 +672,7 @@ const SprayHistory = () => {
                 )}
 
                 {/* ── Scheduled Spray Runs ── */}
-                <h4 className="mt-4 mb-3 text-secondary border-bottom pb-2">Scheduled Spray Events</h4>
+                <h4 className="mt-4 mb-3 text-secondary border-bottom pb-2">Scheduled Spray Applications</h4>
                 {groupedData.groups.length === 0 ? (
                     <p className="text-muted italic">No scheduled spray runs found.</p>
                 ) : (
@@ -704,9 +705,9 @@ const SprayHistory = () => {
                                             {event.litersAcre && <span className="badge bg-warning text-dark">{event.litersAcre} L/Ac Water</span>}
                                         </div>
                                         <div>
-                                            <Button variant="outline-success" size="sm" className="me-2 py-1" onClick={() => handleClone(group, event)}>Clone Event</Button>
-                                            <Button variant="outline-light" size="sm" className="me-2 py-1" onClick={() => handleShow(group, event)}>Edit Event</Button>
-                                            <Button variant="outline-danger" size="sm" className="py-1" onClick={() => handleDeleteEvent(event.blockEventId, group.sprayNumber, event.block, event.date)}>Delete Event</Button>
+                                            <Button variant="outline-success" size="sm" className="me-2 py-1" onClick={() => handleClone(group, event)}>Clone Application</Button>
+                                            <Button variant="outline-light" size="sm" className="me-2 py-1" onClick={() => handleShow(group, event)}>Edit Application</Button>
+                                            <Button variant="outline-danger" size="sm" className="py-1" onClick={() => handleDeleteEvent(event.blockEventId, group.sprayNumber, event.block, event.date)}>Delete Application</Button>
                                         </div>
                                     </Card.Header>
                                     <Card.Body className="p-0">
@@ -756,9 +757,9 @@ const SprayHistory = () => {
                                         {event.litersAcre && <span className="badge bg-warning text-dark">{event.litersAcre} L/Ac Water</span>}
                                     </div>
                                     <div>
-                                        <Button variant="outline-success" size="sm" className="me-2 py-1 text-white border-white" onClick={() => handleClone(null, event)}>Clone Event</Button>
-                                        <Button variant="outline-light" size="sm" className="me-2 py-1" onClick={() => handleShowSingle(event)}>Edit Event</Button>
-                                        <Button variant="outline-danger" size="sm" className="py-1 text-white border-danger bg-danger" onClick={() => handleDeleteEvent(event.blockEventId, null, event.block, event.date)}>Delete Event</Button>
+                                        <Button variant="outline-success" size="sm" className="me-2 py-1 text-white border-white" onClick={() => handleClone(null, event)}>Clone Application</Button>
+                                        <Button variant="outline-light" size="sm" className="me-2 py-1" onClick={() => handleShowSingle(event)}>Edit Application</Button>
+                                        <Button variant="outline-danger" size="sm" className="py-1 text-white border-danger bg-danger" onClick={() => handleDeleteEvent(event.blockEventId, null, event.block, event.date)}>Delete Application</Button>
                                     </div>
                                 </Card.Header>
                                 <Card.Body className="p-0">
@@ -804,7 +805,7 @@ const SprayHistory = () => {
                         {/* ── Header Details ── */}
                         <Card className="mb-4 border-0 shadow-sm w-100">
                             <Card.Body>
-                                <h5>Block Event Configuration</h5>
+                                <h5>Block Application Configuration</h5>
                                 <Row>
                                     <Col md={2}>
                                         <Form.Group className="mb-3">
@@ -908,7 +909,7 @@ const SprayHistory = () => {
 
                         <div className="text-end mt-4">
                             <Button variant="secondary" className="me-2" onClick={handleClose}>Cancel</Button>
-                            <Button variant="primary" type="submit">Save Block Event</Button>
+                            <Button variant="primary" type="submit">Save Block Application</Button>
                         </div>
                     </Form>
                 </Modal.Body>
