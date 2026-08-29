@@ -76,6 +76,15 @@ def migrate_csv_to_postgres():
                     try:
                         cursor.execute("CREATE EXTENSION IF NOT EXISTS postgis;")
                         cursor.execute("ALTER TABLE vineyard_blocks ADD COLUMN IF NOT EXISTS block_area GEOMETRY(Polygon, 4326);")
+                        
+                        # Rename block_events to block_applications if it exists
+                        cursor.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'block_events')")
+                        if cursor.fetchone()[0]:
+                            print("Migrating table 'block_events' to 'block_applications'...")
+                            cursor.execute("ALTER TABLE block_events RENAME TO block_applications;")
+                            cursor.execute("ALTER TABLE spray_history RENAME COLUMN block_event_id TO block_application_id;")
+                            cursor.execute("ALTER SEQUENCE IF EXISTS block_events_id_seq RENAME TO block_applications_id_seq;")
+                            
                         cursor.execute("""
                         CREATE TABLE IF NOT EXISTS system_settings (
                             key VARCHAR(100) PRIMARY KEY,
@@ -107,13 +116,28 @@ def migrate_csv_to_postgres():
     # Try to load all existing tables to preserve them as seed data
     existing_data = {}
     
+    try:
+        # Check if table 'block_events' exists but not 'block_applications', and rename it first!
+        cursor.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'block_events')")
+        if cursor.fetchone()[0]:
+            cursor.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'block_applications')")
+            if not cursor.fetchone()[0]:
+                print("Renaming block_events to block_applications during schema preservation...")
+                cursor.execute("ALTER TABLE block_events RENAME TO block_applications;")
+                cursor.execute("ALTER TABLE spray_history RENAME COLUMN block_event_id TO block_application_id;")
+                cursor.execute("ALTER SEQUENCE IF EXISTS block_events_id_seq RENAME TO block_applications_id_seq;")
+                conn.commit()
+    except Exception as pres_rename_err:
+        print("Warning: Could not rename block_events to block_applications during preservation:", pres_rename_err)
+        conn.rollback()
+
     tables_to_preserve = [
         "volume_units",
         "products",
         "vineyard_blocks",
         "vineyard_rows",
         "spray_events",
-        "block_events",
+        "block_applications",
         "spray_history"
     ]
     
@@ -264,7 +288,7 @@ def migrate_csv_to_postgres():
     cursor.execute('DROP TABLE IF EXISTS vineyard_rows CASCADE;')
     cursor.execute('DROP TABLE IF EXISTS vineyard_blocks CASCADE;')
     cursor.execute('DROP TABLE IF EXISTS spray_history CASCADE;')
-    cursor.execute('DROP TABLE IF EXISTS block_events CASCADE;')
+    cursor.execute('DROP TABLE IF EXISTS block_applications CASCADE;')
     cursor.execute('DROP TABLE IF EXISTS spray_events CASCADE;')
 
     create_vineyard_blocks_table = """
@@ -358,8 +382,8 @@ def migrate_csv_to_postgres():
     """
     cursor.execute(create_spray_events_table)
     
-    create_block_events_table = """
-    CREATE TABLE block_events (
+    create_block_applications_table = """
+    CREATE TABLE block_applications (
         id SERIAL PRIMARY KEY,
         event_id INTEGER REFERENCES spray_events(id) ON DELETE CASCADE,
         "Block " VARCHAR(50) REFERENCES vineyard_blocks(block_code) ON UPDATE CASCADE ON DELETE RESTRICT,
@@ -367,14 +391,14 @@ def migrate_csv_to_postgres():
         "End Time" VARCHAR(50),
         "Liters/Acre" DOUBLE PRECISION
     );
-    CREATE UNIQUE INDEX unique_event_block ON block_events (event_id, "Block ");
+    CREATE UNIQUE INDEX unique_event_block ON block_applications (event_id, "Block ");
     """
-    cursor.execute(create_block_events_table)
+    cursor.execute(create_block_applications_table)
     
     create_history_table = """
     CREATE TABLE spray_history (
         id SERIAL PRIMARY KEY,
-        block_event_id INTEGER REFERENCES block_events(id) ON DELETE CASCADE,
+        block_application_id INTEGER REFERENCES block_applications(id) ON DELETE CASCADE,
         "Pesticide" VARCHAR(255) REFERENCES products("Product") ON UPDATE CASCADE ON DELETE RESTRICT,
         "Dose/acre" DOUBLE PRECISION,
         "Dose per L @150 l" DOUBLE PRECISION,
@@ -385,7 +409,7 @@ def migrate_csv_to_postgres():
         "REI_TIME" VARCHAR(50)
     );
     CREATE UNIQUE INDEX unique_spray_history_chemical ON spray_history (
-        block_event_id,
+        block_application_id,
         "Pesticide"
     );
     """
@@ -417,22 +441,24 @@ def migrate_csv_to_postgres():
             cursor.execute('INSERT INTO spray_events (id, "Spray #") VALUES (%s, %s) ON CONFLICT (id) DO NOTHING;', (e["id"], e["Spray #"]))
         cursor.execute("SELECT setval('spray_events_id_seq', COALESCE((SELECT MAX(id)+1 FROM spray_events), 1), false)")
         
-        if "block_events" in existing_data and existing_data["block_events"]:
-            print(f"Restoring {len(existing_data['block_events'])} block events...")
-            for b in existing_data["block_events"]:
+        block_apps = existing_data.get("block_applications") or existing_data.get("block_events")
+        if block_apps:
+            print(f"Restoring {len(block_apps)} block applications...")
+            for b in block_apps:
                 cursor.execute(
-                    'INSERT INTO block_events (id, event_id, "Block ", "Date", "End Time", "Liters/Acre") VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING;',
+                    'INSERT INTO block_applications (id, event_id, "Block ", "Date", "End Time", "Liters/Acre") VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING;',
                     (b["id"], b["event_id"], b["Block "], b["Date"], b["End Time"], b["Liters/Acre"])
                 )
-            cursor.execute("SELECT setval('block_events_id_seq', COALESCE((SELECT MAX(id)+1 FROM block_events), 1), false)")
+            cursor.execute("SELECT setval('block_applications_id_seq', COALESCE((SELECT MAX(id)+1 FROM block_applications), 1), false)")
             
         if "spray_history" in existing_data and existing_data["spray_history"]:
             print(f"Restoring {len(existing_data['spray_history'])} chemical application logs...")
             h_count = 0
             for h in existing_data["spray_history"]:
+                b_app_id = h.get("block_application_id") or h.get("block_event_id")
                 cursor.execute(
-                    'INSERT INTO spray_history (id, block_event_id, "Pesticide", "Dose/acre", "Dose per L @150 l", "Calculated Dose", "Dose Units", "Notes", "PHI Date", "REI_TIME") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING;',
-                    (h["id"], h["block_event_id"], h["Pesticide"], h["Dose/acre"], h["Dose per L @150 l"], h["Calculated Dose"], h["Dose Units"], h["Notes"], h["PHI Date"], h["REI_TIME"])
+                    'INSERT INTO spray_history (id, block_application_id, "Pesticide", "Dose/acre", "Dose per L @150 l", "Calculated Dose", "Dose Units", "Notes", "PHI Date", "REI_TIME") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING;',
+                    (h["id"], b_app_id, h["Pesticide"], h["Dose/acre"], h["Dose per L @150 l"], h["Calculated Dose"], h["Dose Units"], h["Notes"], h["PHI Date"], h["REI_TIME"])
                 )
                 h_count += 1
             cursor.execute("SELECT setval('spray_history_id_seq', COALESCE((SELECT MAX(id)+1 FROM spray_history), 1), false)")
@@ -510,7 +536,7 @@ def migrate_csv_to_postgres():
         # Seed events and chemical logs in normalized 3-table structure
         print("Seeding normalized events and chemical applications...")
         spray_event_map = {}
-        block_event_map = {}
+        block_application_map = {}
         h_count = 0
         
         for row in seed_history:
@@ -545,17 +571,17 @@ def migrate_csv_to_postgres():
                 )
                 event_id = cursor.fetchone()[0]
                 
-            # 2. Get child block_event ID
+            # 2. Get child block_application ID
             block_key = (event_id, clean_block)
-            if block_key not in block_event_map:
+            if block_key not in block_application_map:
                 cursor.execute(
-                    'INSERT INTO block_events (event_id, "Block ", "Date", "End Time", "Liters/Acre") VALUES (%s, %s, %s, %s, %s) RETURNING id',
+                    'INSERT INTO block_applications (event_id, "Block ", "Date", "End Time", "Liters/Acre") VALUES (%s, %s, %s, %s, %s) RETURNING id',
                     (event_id, clean_block, clean_date, clean_end_time, liters_acre)
                 )
-                block_event_id = cursor.fetchone()[0]
-                block_event_map[block_key] = block_event_id
+                block_application_id = cursor.fetchone()[0]
+                block_application_map[block_key] = block_application_id
             else:
-                block_event_id = block_event_map[block_key]
+                block_application_id = block_application_map[block_key]
                 
             # Insert chemical log
             pesticide = row[4]
@@ -569,13 +595,13 @@ def migrate_csv_to_postgres():
             
             insert_history_sql = """
             INSERT INTO spray_history (
-                block_event_id, "Pesticide", "Dose/acre", 
+                block_application_id, "Pesticide", "Dose/acre", 
                 "Dose per L @150 l", "Calculated Dose", "Dose Units", 
                 "Notes", "PHI Date", "REI_TIME"
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
             cursor.execute(insert_history_sql, (
-                block_event_id, pesticide, dose_acre,
+                block_application_id, pesticide, dose_acre,
                 dose_per_l, calc_dose, dose_units,
                 notes, phi_date, rei_time
             ))
@@ -594,7 +620,7 @@ def migrate_csv_to_postgres():
         cursor.execute('GRANT ALL PRIVILEGES ON TABLE vineyard_blocks TO sprayplanner_user;')
         cursor.execute('GRANT ALL PRIVILEGES ON TABLE vineyard_rows TO sprayplanner_user;')
         cursor.execute('GRANT ALL PRIVILEGES ON TABLE spray_events TO sprayplanner_user;')
-        cursor.execute('GRANT ALL PRIVILEGES ON TABLE block_events TO sprayplanner_user;')
+        cursor.execute('GRANT ALL PRIVILEGES ON TABLE block_applications TO sprayplanner_user;')
         cursor.execute('GRANT ALL PRIVILEGES ON TABLE spray_history TO sprayplanner_user;')
         cursor.execute('GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO sprayplanner_user;')
         conn.commit()

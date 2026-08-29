@@ -2532,7 +2532,7 @@
       "Spray #": 7
     }
   ],
-  "block_events": [
+  "block_applications": [
     {
       "id": 1,
       "event_id": 1,

@@ -139,7 +139,7 @@ function SprayReports() {
             const calcDose = item["Calculated Dose"] || 0;
             const calcDoseUnit = item["Dose Units"] || '';
             const campaign = item["Spray #"];
-            const blockEventId = item.block_event_id;
+            const blockEventId = item.block_application_id || item.block_event_id;
             const block = item["Block "] || '';
             const date = item["Date"] || '';
             const endTime = item["End Time"] || '';
@@ -492,7 +492,7 @@ function SprayReports() {
     // Summary stats
     const totalChemicalsUsed = new Set(filteredLogs.map(l => l.Pesticide).filter(Boolean)).size;
     const totalCampaignRuns = new Set(filteredLogs.map(l => l["Spray #"]).filter(Boolean)).size;
-    const totalBlockApplications = new Set(filteredLogs.map(l => l.block_event_id).filter(Boolean)).size;
+    const totalBlockApplications = new Set(filteredLogs.map(l => l.block_application_id || l.block_event_id).filter(Boolean)).size;
 
     // Years option list from actual data logs
     const getAvailableYears = () => {

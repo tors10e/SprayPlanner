@@ -26,7 +26,7 @@ def dump_db_to_json():
         "vineyard_blocks",
         "vineyard_rows",
         "spray_events",
-        "block_events",
+        "block_applications",
         "spray_history",
         "system_settings"
     ]

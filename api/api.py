@@ -290,23 +290,24 @@ def save_history_group():
                 cursor.execute('INSERT INTO spray_events ("Spray #") VALUES (NULL) RETURNING id')
                 target_event_id = cursor.fetchone()[0]
                 
-            # 2. Find or create the block event row
-            if block_event_id is not None:
-                # Update existing block event
+            # 2. Find or create the block application row
+            block_application_id = data.get("block_application_id") or data.get("block_event_id")
+            if block_application_id is not None:
+                # Update existing block application
                 cursor.execute(
-                    'UPDATE block_events SET event_id = %s, "Block " = %s, "Date" = %s, "End Time" = %s, "Liters/Acre" = %s WHERE id = %s',
-                    (target_event_id, clean_block, clean_date, clean_end_time, clean_liters_acre, int(block_event_id))
+                    'UPDATE block_applications SET event_id = %s, "Block " = %s, "Date" = %s, "End Time" = %s, "Liters/Acre" = %s WHERE id = %s',
+                    (target_event_id, clean_block, clean_date, clean_end_time, clean_liters_acre, int(block_application_id))
                 )
-                actual_block_event_id = int(block_event_id)
+                actual_block_application_id = int(block_application_id)
                 # Clear old chemicals
-                cursor.execute('DELETE FROM spray_history WHERE block_event_id = %s', (actual_block_event_id,))
+                cursor.execute('DELETE FROM spray_history WHERE block_application_id = %s', (actual_block_application_id,))
             else:
-                # Insert new block event
+                # Insert new block application
                 cursor.execute(
-                    'INSERT INTO block_events (event_id, "Block ", "Date", "End Time", "Liters/Acre") VALUES (%s, %s, %s, %s, %s) RETURNING id',
+                    'INSERT INTO block_applications (event_id, "Block ", "Date", "End Time", "Liters/Acre") VALUES (%s, %s, %s, %s, %s) RETURNING id',
                     (target_event_id, clean_block, clean_date, clean_end_time, clean_liters_acre)
                 )
-                actual_block_event_id = cursor.fetchone()[0]
+                actual_block_application_id = cursor.fetchone()[0]
             
             # 3. Insert new/updated chemical rows in spray_history
             for row in rows:
@@ -315,20 +316,20 @@ def save_history_group():
                 
                 # Build insertion columns and placeholders
                 remapped_data = {history_repo._clean_key(k): history_repo._normalize_val(v) for k, v in row.items() if k in history_repo.columns}
-                remapped_data['block_event_id'] = actual_block_event_id
+                remapped_data['block_application_id'] = actual_block_application_id
                 for col in history_repo.columns:
                     cleaned = history_repo._clean_key(col)
                     if cleaned not in remapped_data:
                         remapped_data[cleaned] = None
                         
-                columns_sql = "block_event_id, " + ", ".join([f'"{c}"' for c in history_repo.columns])
-                placeholders_sql = "%(block_event_id)s, " + ", ".join([f"%({history_repo._clean_key(c)})s" for c in history_repo.columns])
+                columns_sql = "block_application_id, " + ", ".join([f'"{c}"' for c in history_repo.columns])
+                placeholders_sql = "%(block_application_id)s, " + ", ".join([f"%({history_repo._clean_key(c)})s" for c in history_repo.columns])
                 sql = f"INSERT INTO spray_history ({columns_sql}) VALUES ({placeholders_sql})"
                 
                 cursor.execute(sql, remapped_data)
                 
-            # 4. Clean up any empty parent spray_events (which have no block_events left)
-            cursor.execute('DELETE FROM spray_events WHERE id NOT IN (SELECT DISTINCT event_id FROM block_events)')
+            # 4. Clean up any empty parent spray_events (which have no block_applications left)
+            cursor.execute('DELETE FROM spray_events WHERE id NOT IN (SELECT DISTINCT event_id FROM block_applications)')
                 
             conn.commit()
             return jsonify({'status': 'success'})
@@ -346,13 +347,13 @@ def save_history_group():
 def delete_history_event():
     try:
         data = request.json
-        block_event_id = data.get("block_event_id")
+        block_application_id = data.get("block_application_id") or data.get("block_event_id")
         
         conn = history_repo._get_connection()
         cursor = conn.cursor()
         
-        if block_event_id is not None:
-            cursor.execute('DELETE FROM block_events WHERE id = %s', (int(block_event_id),))
+        if block_application_id is not None:
+            cursor.execute('DELETE FROM block_applications WHERE id = %s', (int(block_application_id),))
         else:
             # Fallback to block details lookup
             spray_number = data.get("spray_number")
@@ -366,10 +367,10 @@ def delete_history_event():
             clean_end_time = None if end_time == "" or end_time is None else end_time
             
             cursor.execute("""
-                DELETE FROM block_events 
+                DELETE FROM block_applications 
                 WHERE id IN (
                     SELECT b.id 
-                    FROM block_events b
+                    FROM block_applications b
                     INNER JOIN spray_events e ON b.event_id = e.id
                     WHERE e."Spray #" IS NOT DISTINCT FROM %s
                       AND b."Block " IS NOT DISTINCT FROM %s
@@ -379,14 +380,14 @@ def delete_history_event():
             """, (clean_spray_number, clean_block, clean_date, clean_end_time))
             
         # Clean up empty parent spray_events
-        cursor.execute('DELETE FROM spray_events WHERE id NOT IN (SELECT DISTINCT event_id FROM block_events)')
+        cursor.execute('DELETE FROM spray_events WHERE id NOT IN (SELECT DISTINCT event_id FROM block_applications)')
             
         conn.commit()
         cursor.close()
         conn.close()
         return jsonify({'status': 'success'})
     except Exception as e:
-        print(f"Error deleting history event: {e}")
+        print(f"Error deleting history application: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/history/update_spray_number', methods=['POST'])
@@ -418,7 +419,7 @@ def update_spray_number():
                 new_event_id = new_row[0]
                 # Merge old blocks under new parent event
                 cursor.execute(
-                    'UPDATE block_events SET event_id = %s WHERE event_id = %s',
+                    'UPDATE block_applications SET event_id = %s WHERE event_id = %s',
                     (new_event_id, old_event_id)
                 )
                 cursor.execute('DELETE FROM spray_events WHERE id = %s', (old_event_id,))
@@ -430,7 +431,7 @@ def update_spray_number():
                 )
         
         # Clean up empty parent spray_events
-        cursor.execute('DELETE FROM spray_events WHERE id NOT IN (SELECT DISTINCT event_id FROM block_events)')
+        cursor.execute('DELETE FROM spray_events WHERE id NOT IN (SELECT DISTINCT event_id FROM block_applications)')
         
         conn.commit()
         cursor.close()
@@ -463,40 +464,40 @@ def clone_spray_group():
             cursor.execute('INSERT INTO spray_events ("Spray #") VALUES (%s) RETURNING id', (clean_new,))
             target_event_id = cursor.fetchone()[0]
                 
-            cursor.execute('SELECT id, "Block ", "Date", "End Time", "Liters/Acre" FROM block_events WHERE event_id = %s', (source_event_id,))
+            cursor.execute('SELECT id, "Block ", "Date", "End Time", "Liters/Acre" FROM block_applications WHERE event_id = %s', (source_event_id,))
             blocks = cursor.fetchall()
             
             for old_block_id, block_name, date, end_time, liters_acre in blocks:
                 cursor.execute(
-                    'SELECT id FROM block_events WHERE event_id = %s AND "Block " IS NOT DISTINCT FROM %s',
+                    'SELECT id FROM block_applications WHERE event_id = %s AND "Block " IS NOT DISTINCT FROM %s',
                     (target_event_id, block_name)
                 )
                 existing_block_row = cursor.fetchone()
                 if existing_block_row:
-                    new_block_event_id = existing_block_row[0]
-                    cursor.execute('DELETE FROM spray_history WHERE block_event_id = %s', (new_block_event_id,))
+                    new_block_application_id = existing_block_row[0]
+                    cursor.execute('DELETE FROM spray_history WHERE block_application_id = %s', (new_block_application_id,))
                 else:
                     cursor.execute(
-                        'INSERT INTO block_events (event_id, "Block ", "Date", "End Time", "Liters/Acre") VALUES (%s, %s, %s, %s, %s) RETURNING id',
+                        'INSERT INTO block_applications (event_id, "Block ", "Date", "End Time", "Liters/Acre") VALUES (%s, %s, %s, %s, %s) RETURNING id',
                         (target_event_id, block_name, date, end_time, liters_acre)
                     )
-                    new_block_event_id = cursor.fetchone()[0]
+                    new_block_application_id = cursor.fetchone()[0]
                     
                 cursor.execute("""
                     SELECT "Pesticide", "Dose/acre", "Dose per L @150 l", "Calculated Dose", "Dose Units", "Notes", "PHI Date", "REI_TIME"
                     FROM spray_history
-                    WHERE block_event_id = %s
+                    WHERE block_application_id = %s
                 """, (old_block_id,))
                 chemicals = cursor.fetchall()
                 
                 for chem in chemicals:
                     cursor.execute("""
                         INSERT INTO spray_history (
-                            block_event_id, "Pesticide", "Dose/acre", 
+                            block_application_id, "Pesticide", "Dose/acre", 
                             "Dose per L @150 l", "Calculated Dose", "Dose Units", 
                             "Notes", "PHI Date", "REI_TIME"
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (new_block_event_id, *chem))
+                    """, (new_block_application_id, *chem))
                     
             conn.commit()
             return jsonify({'status': 'success'})
@@ -852,7 +853,7 @@ def get_spray_recommendations():
             # Fetch last spray date for this block
             cursor.execute("""
                 SELECT MAX(be."Date") 
-                FROM block_events be
+                FROM block_applications be
                 JOIN spray_events se ON be.event_id = se.id
                 WHERE be."Block " = %s
             """, (bcode,))
