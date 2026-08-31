@@ -61,7 +61,7 @@ def test_postgres_crud_flow(repo):
     assert inserted_product is not None
     assert inserted_product.name == test_product_name
     assert inserted_product.primary_disease == "Powdery"
-    assert inserted_product.frac_codes == ["3", "11"]
+    assert set(inserted_product.frac_codes) == {"3", "11"}
     assert inserted_product.omri == "1"
     assert inserted_product.phi == 7
     assert inserted_product.max_applications == 4

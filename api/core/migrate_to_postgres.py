@@ -102,8 +102,121 @@ def migrate_csv_to_postgres():
                         }
                         for k, v in defaults.items():
                             cursor.execute("INSERT INTO system_settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING;", (k, v))
+                        
+                        # Create and seed 'frac_codes' lookup table
+                        cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS frac_codes (
+                            code VARCHAR(50) PRIMARY KEY,
+                            description VARCHAR(255)
+                        );
+                        """)
+                        cursor.execute("SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'FRAC')")
+                        if cursor.fetchone()[0]:
+                            cursor.execute('SELECT DISTINCT "FRAC" FROM products WHERE "FRAC" IS NOT NULL AND "FRAC" != \'\'')
+                            existing_frac_vals = [r[0] for r in cursor.fetchall()]
+                            import re
+                            unique_seeded_fracs = set(["M01", "M02", "M03", "M04", "1", "2", "3", "4", "7", "9", "11", "12", "13", "17", "18", "19", "21", "27", "40", "45", "BM02", "UN", "IRAC 1A", "IRAC 3A", "WSSA 9", "WSSA 10", ""])
+                            for efv in existing_frac_vals:
+                                parts = re.split(r'[\+\/,;]', str(efv))
+                                for part in parts:
+                                    p_clean = part.strip()
+                                    if p_clean and p_clean.lower() not in ["nan", "none", "null", ""]:
+                                        if p_clean.lower().startswith('m') and len(p_clean) > 1:
+                                            p_clean = 'M' + p_clean[1:]
+                                        unique_seeded_fracs.add(p_clean)
+                            for f_code in sorted(unique_seeded_fracs):
+                                cursor.execute("INSERT INTO frac_codes (code, description) VALUES (%s, '') ON CONFLICT (code) DO NOTHING;", (f_code,))
+                        
+                        # Ensure products table has an 'id' column as its primary key and 'Product' is UNIQUE
+                        cursor.execute("SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'id')")
+                        if not cursor.fetchone()[0]:
+                            print("Adding primary key 'id' column to products table...")
+                            cursor.execute("ALTER TABLE products ADD COLUMN id SERIAL;")
+                            
+                            # Query all foreign keys referencing 'products' table and drop them dynamically
+                            cursor.execute("""
+                                SELECT 
+                                    tc.table_name, 
+                                    tc.constraint_name
+                                FROM 
+                                    information_schema.table_constraints AS tc 
+                                    JOIN information_schema.constraint_column_usage AS ccu
+                                        ON tc.constraint_name = ccu.constraint_name
+                                WHERE tc.constraint_type = 'FOREIGN KEY' AND ccu.table_name = 'products';
+                            """)
+                            fkeys = cursor.fetchall()
+                            for ftable, fname in fkeys:
+                                print(f"Dropping foreign key constraint '{fname}' on table '{ftable}'...")
+                                cursor.execute(f'ALTER TABLE "{ftable}" DROP CONSTRAINT "{fname}";')
+                            
+                            # Drop old primary key constraint
+                            cursor.execute("""
+                                SELECT constraint_name 
+                                FROM information_schema.table_constraints 
+                                WHERE table_name = 'products' AND constraint_type = 'PRIMARY KEY'
+                            """)
+                            pk_row = cursor.fetchone()
+                            if pk_row:
+                                cursor.execute(f'ALTER TABLE products DROP CONSTRAINT "{pk_row[0]}";')
+                                
+                            cursor.execute("ALTER TABLE products ADD PRIMARY KEY (id);")
+                            cursor.execute("ALTER TABLE products ADD CONSTRAINT products_product_key UNIQUE (\"Product\");")
+                            
+                            # Re-add spray_history foreign key constraint
+                            cursor.execute('ALTER TABLE spray_history ADD CONSTRAINT "spray_history_Pesticide_fkey" FOREIGN KEY ("Pesticide") REFERENCES products("Product") ON UPDATE CASCADE ON DELETE RESTRICT;')
+
+                        # Recreate or migrate product_frac_codes mapping table to use product_id
+                        cursor.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'product_frac_codes')")
+                        if cursor.fetchone()[0]:
+                            cursor.execute("SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_name = 'product_frac_codes' AND column_name = 'product_name')")
+                            if cursor.fetchone()[0]:
+                                print("Migrating product_frac_codes schema to use product_id...")
+                                cursor.execute("ALTER TABLE product_frac_codes RENAME TO old_product_frac_codes;")
+                                cursor.execute("""
+                                CREATE TABLE product_frac_codes (
+                                    id SERIAL PRIMARY KEY,
+                                    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+                                    frac_code VARCHAR(50) REFERENCES frac_codes(code) ON UPDATE CASCADE ON DELETE RESTRICT,
+                                    UNIQUE(product_id, frac_code)
+                                );
+                                """)
+                                cursor.execute("""
+                                INSERT INTO product_frac_codes (product_id, frac_code)
+                                SELECT p.id, op.frac_code
+                                FROM old_product_frac_codes op
+                                JOIN products p ON p."Product" = op.product_name
+                                ON CONFLICT DO NOTHING;
+                                """)
+                                cursor.execute("DROP TABLE old_product_frac_codes;")
+                        else:
+                            cursor.execute("""
+                            CREATE TABLE product_frac_codes (
+                                id SERIAL PRIMARY KEY,
+                                product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+                                frac_code VARCHAR(50) REFERENCES frac_codes(code) ON UPDATE CASCADE ON DELETE RESTRICT,
+                                UNIQUE(product_id, frac_code)
+                            );
+                            """)
+                        
+                        # If products table still has the 'FRAC' column, migrate the data first, then drop the column
+                        cursor.execute("SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'FRAC')")
+                        if cursor.fetchone()[0]:
+                            print("Migrating products.FRAC values to product_frac_codes mapping table...")
+                            cursor.execute('SELECT id, "FRAC" FROM products')
+                            prods = cursor.fetchall()
+                            for p_id, frac_val in prods:
+                                if frac_val:
+                                    parts = re.split(r'[\+\/,;]', str(frac_val))
+                                    for part in parts:
+                                        p_clean = part.strip()
+                                        if p_clean and p_clean.lower() not in ["nan", "none", "null", ""]:
+                                            if p_clean.lower().startswith('m') and len(p_clean) > 1:
+                                                p_clean = 'M' + p_clean[1:]
+                                            cursor.execute('INSERT INTO product_frac_codes (product_id, frac_code) VALUES (%s, %s) ON CONFLICT (product_id, frac_code) DO NOTHING;', (p_id, p_clean))
+                            cursor.execute('ALTER TABLE products DROP COLUMN "FRAC";')
+                        
                         conn.commit()
-                        print("PostgreSQL schema migration completed: block_area and system_settings verified/added.")
+                        print("PostgreSQL schema migration completed: block_area, system_settings, frac_codes, products.id, and product_frac_codes verified/added.")
                     except Exception as migration_err:
                         print("Error during database alteration migration:", migration_err)
                         conn.rollback()
@@ -133,7 +246,9 @@ def migrate_csv_to_postgres():
 
     tables_to_preserve = [
         "volume_units",
+        "frac_codes",
         "products",
+        "product_frac_codes",
         "vineyard_blocks",
         "vineyard_rows",
         "spray_events",
@@ -192,15 +307,40 @@ def migrate_csv_to_postgres():
         if u_clean and u_clean.lower() not in ['nan', 'none', 'null', '']:
             cursor.execute('INSERT INTO volume_units (unit) VALUES (%s) ON CONFLICT DO NOTHING;', (u_clean,))
 
+    # Recreate the frac_codes lookup table
+    print("Recreating 'frac_codes' table...")
+    cursor.execute('DROP TABLE IF EXISTS frac_codes CASCADE;')
+    cursor.execute("""
+    CREATE TABLE frac_codes (
+        code VARCHAR(50) PRIMARY KEY,
+        description VARCHAR(255)
+    );
+    """)
+
+    # Seed frac_codes with standard/CSV FRAC values
+    unique_fracs = set(["M01", "M02", "M03", "M04", "1", "2", "3", "4", "7", "9", "11", "12", "13", "17", "18", "19", "21", "27", "40", "45", "BM02", "UN", "IRAC 1A", "IRAC 3A", "WSSA 9", "WSSA 10", ""])
+    if "FRAC" in df.columns:
+        import re
+        for val in df["FRAC"].dropna().astype(str):
+            parts = re.split(r'[\+\/,;]', val)
+            for part in parts:
+                p_clean = part.strip()
+                if p_clean and p_clean.lower() not in ['nan', 'none', 'null', '']:
+                    if p_clean.lower().startswith('m') and len(p_clean) > 1:
+                        p_clean = 'M' + p_clean[1:]
+                    unique_fracs.add(p_clean)
+    for f in sorted(unique_fracs):
+        cursor.execute('INSERT INTO frac_codes (code, description) VALUES (%s, %s) ON CONFLICT DO NOTHING;', (f, ''))
+
     # Recreate the products table
     print("Recreating 'products' table...")
     cursor.execute('DROP TABLE IF EXISTS products CASCADE;')
     
     create_table_sql = """
     CREATE TABLE products (
-        "Product" VARCHAR(255) PRIMARY KEY,
+        id SERIAL PRIMARY KEY,
+        "Product" VARCHAR(255) UNIQUE,
         "Primary Disease" VARCHAR(255),
-        "FRAC" VARCHAR(255),
         "omri" VARCHAR(50),
         "phi" INTEGER,
         "Max Applications" INTEGER,
@@ -233,9 +373,20 @@ def migrate_csv_to_postgres():
     """
     cursor.execute(create_table_sql)
     cursor.execute('CREATE UNIQUE INDEX unique_product_name_case_insensitive ON products (LOWER("Product"));')
+
+    # Create product_frac_codes table
+    cursor.execute('DROP TABLE IF EXISTS product_frac_codes CASCADE;')
+    cursor.execute("""
+    CREATE TABLE product_frac_codes (
+        id SERIAL PRIMARY KEY,
+        product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+        frac_code VARCHAR(50) REFERENCES frac_codes(code) ON UPDATE CASCADE ON DELETE RESTRICT,
+        UNIQUE(product_id, frac_code)
+    );
+    """)
     
     csv_cols = [
-        "Product", "Primary Disease", "FRAC", "omri", "phi",
+        "Product", "Primary Disease", "omri", "phi",
         "Max Applications", "Container Size", "units", "Price",
         "Dose (avg)", "Cost/Dose", "Anthracnose", "Black Rot",
         "Bitter Rot", "Botrytis", "Downy", "Phomopsis", "Powdery"
@@ -249,9 +400,10 @@ def migrate_csv_to_postgres():
 
     columns_str = ", ".join([f'"{c}"' for c in all_cols])
     placeholders = ", ".join(["%s"] * len(all_cols))
-    insert_sql = f'INSERT INTO products ({columns_str}) VALUES ({placeholders})'
+    insert_sql = f'INSERT INTO products ({columns_str}) VALUES ({placeholders}) RETURNING id'
 
     count = 0
+    import re
     for _, row in df.iterrows():
         vals = []
         for col in csv_cols:
@@ -261,6 +413,18 @@ def migrate_csv_to_postgres():
             vals.append(val)
         vals += [None, None, None, None, False, False, False, False, None, None, None, None, None]
         cursor.execute(insert_sql, vals)
+        product_id = cursor.fetchone()[0]
+        
+        # Seed product_frac_codes
+        frac_val = row.get("FRAC")
+        if frac_val and not pd.isna(frac_val) and str(frac_val).strip() != "" and str(frac_val).lower() != "nan":
+            parts = re.split(r'[\+\/,;]', str(frac_val))
+            for part in parts:
+                p_clean = part.strip()
+                if p_clean and p_clean.lower() not in ["nan", "none", "null", ""]:
+                    if p_clean.lower().startswith('m') and len(p_clean) > 1:
+                        p_clean = 'M' + p_clean[1:]
+                    cursor.execute('INSERT INTO product_frac_codes (product_id, frac_code) VALUES (%s, %s) ON CONFLICT (product_id, frac_code) DO NOTHING;', (product_id, p_clean))
         count += 1
     print(f"Successfully migrated {count} products to PostgreSQL!")
 
@@ -281,6 +445,18 @@ def migrate_csv_to_postgres():
         for p in existing_data["products"]:
             vals = [p.get(c) for c in cols]
             cursor.execute(insert_prod_sql, vals)
+
+    if "product_frac_codes" in existing_data and existing_data["product_frac_codes"]:
+        print(f"Restoring {len(existing_data['product_frac_codes'])} product FRAC mappings...")
+        for pfc in existing_data["product_frac_codes"]:
+            p_id = pfc.get("product_id")
+            if not p_id and "product_name" in pfc:
+                cursor.execute('SELECT id FROM products WHERE "Product" = %s', (pfc["product_name"],))
+                row = cursor.fetchone()
+                if row:
+                    p_id = row[0]
+            if p_id:
+                cursor.execute('INSERT INTO product_frac_codes (product_id, frac_code) VALUES (%s, %s) ON CONFLICT (product_id, frac_code) DO NOTHING;', (p_id, pfc["frac_code"]))
 
     # --- Recreate database tables in normalized 3-table schema ---
     print("Recreating database tables in normalized 3-table schema...")
@@ -435,6 +611,11 @@ def migrate_csv_to_postgres():
     for k, v in defaults.items():
         cursor.execute("INSERT INTO system_settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING;", (k, v))
 
+    if "frac_codes" in existing_data and existing_data["frac_codes"]:
+        print(f"Restoring {len(existing_data['frac_codes'])} FRAC codes...")
+        for f in existing_data["frac_codes"]:
+            cursor.execute('INSERT INTO frac_codes (code, description) VALUES (%s, %s) ON CONFLICT (code) DO NOTHING;', (f["code"], f.get("description", "")))
+
     if "spray_events" in existing_data and existing_data["spray_events"]:
         print(f"Restoring {len(existing_data['spray_events'])} spray events...")
         for e in existing_data["spray_events"]:
@@ -501,11 +682,10 @@ def migrate_csv_to_postgres():
         # UPSERT chemical products first to fulfill foreign key references
         print("Upserting seed products from history...")
         sql_product_upsert = """
-        INSERT INTO products ("Product", "EPA No", "FRAC", "Active Ingredient", "Primary Disease", "Singal Word", "rei", "phi", "units", "min_rate", "max_rate")
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO products ("Product", "EPA No", "Active Ingredient", "Primary Disease", "Singal Word", "rei", "phi", "units", "min_rate", "max_rate")
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT ("Product") DO UPDATE SET
             "EPA No" = COALESCE(EXCLUDED."EPA No", products."EPA No"),
-            "FRAC" = COALESCE(EXCLUDED."FRAC", products."FRAC"),
             "Active Ingredient" = COALESCE(EXCLUDED."Active Ingredient", products."Active Ingredient"),
             "Singal Word" = COALESCE(EXCLUDED."Singal Word", products."Singal Word"),
             "rei" = COALESCE(EXCLUDED."rei", products."rei"),
@@ -522,7 +702,6 @@ def migrate_csv_to_postgres():
             cursor.execute(sql_product_upsert, (
                 p_name,
                 row[5] or None,
-                row[6] or None,
                 row[7] or None,
                 row[8] or None,
                 row[9] or None,
@@ -532,6 +711,16 @@ def migrate_csv_to_postgres():
                 row[16] or None,
                 row[17] or None
             ))
+            
+            frac_val = row[6]
+            if frac_val:
+                parts = re.split(r'[\+\/,;]', str(frac_val))
+                for part in parts:
+                    p_clean = part.strip()
+                    if p_clean and p_clean.lower() not in ["nan", "none", "null", ""]:
+                        if p_clean.lower().startswith('m') and len(p_clean) > 1:
+                            p_clean = 'M' + p_clean[1:]
+                        cursor.execute('INSERT INTO product_frac_codes (product_name, frac_code) VALUES (%s, %s) ON CONFLICT (product_name, frac_code) DO NOTHING;', (p_name, p_clean))
 
         # Seed events and chemical logs in normalized 3-table structure
         print("Seeding normalized events and chemical applications...")
@@ -616,7 +805,9 @@ def migrate_csv_to_postgres():
         cursor.close()
         cursor = conn.cursor()
         cursor.execute('GRANT ALL PRIVILEGES ON TABLE volume_units TO sprayplanner_user;')
+        cursor.execute('GRANT ALL PRIVILEGES ON TABLE frac_codes TO sprayplanner_user;')
         cursor.execute('GRANT ALL PRIVILEGES ON TABLE products TO sprayplanner_user;')
+        cursor.execute('GRANT ALL PRIVILEGES ON TABLE product_frac_codes TO sprayplanner_user;')
         cursor.execute('GRANT ALL PRIVILEGES ON TABLE vineyard_blocks TO sprayplanner_user;')
         cursor.execute('GRANT ALL PRIVILEGES ON TABLE vineyard_rows TO sprayplanner_user;')
         cursor.execute('GRANT ALL PRIVILEGES ON TABLE spray_events TO sprayplanner_user;')

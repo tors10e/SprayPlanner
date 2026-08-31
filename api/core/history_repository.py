@@ -47,7 +47,12 @@ class SprayHistoryRepository:
             h."PHI Date",
             h."REI_TIME",
             p."EPA No",
-            p."FRAC" as "Group",
+            COALESCE(
+                (SELECT STRING_AGG(frac_code, ' + ' ORDER BY frac_code) 
+                 FROM product_frac_codes 
+                 WHERE product_id = p.id),
+                ''
+            ) as "Group",
             p."Active Ingredient",
             p."Singal Word",
             p.rei as "REI (h)",
@@ -112,11 +117,10 @@ class SprayHistoryRepository:
             return
             
         sql = """
-        INSERT INTO products ("Product", "EPA No", "FRAC", "Active Ingredient", "Singal Word", "rei", "phi", "units", "min_rate", "max_rate")
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO products ("Product", "EPA No", "Active Ingredient", "Singal Word", "rei", "phi", "units", "min_rate", "max_rate")
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT ("Product") DO UPDATE SET
             "EPA No" = COALESCE(EXCLUDED."EPA No", products."EPA No"),
-            "FRAC" = COALESCE(EXCLUDED."FRAC", products."FRAC"),
             "Active Ingredient" = COALESCE(EXCLUDED."Active Ingredient", products."Active Ingredient"),
             "Singal Word" = COALESCE(EXCLUDED."Singal Word", products."Singal Word"),
             "rei" = COALESCE(EXCLUDED."rei", products."rei"),
@@ -124,12 +128,12 @@ class SprayHistoryRepository:
             "units" = COALESCE(EXCLUDED."units", products."units"),
             "min_rate" = COALESCE(EXCLUDED."min_rate", products."min_rate"),
             "max_rate" = COALESCE(EXCLUDED."max_rate", products."max_rate")
+        RETURNING id
         """
         
         cursor.execute(sql, (
             p_name,
             data.get("EPA No") or None,
-            data.get("Group") or None,
             data.get("Active Ingredient") or None,
             data.get("Singal Word") or None,
             int(data.get("REI (h)")) if data.get("REI (h)") is not None else None,
@@ -138,6 +142,22 @@ class SprayHistoryRepository:
             float(data.get("Min Dose")) if data.get("Min Dose") is not None else None,
             float(data.get("Max Dose")) if data.get("Max Dose") is not None else None
         ))
+        product_id = cursor.fetchone()[0]
+        
+        group_val = data.get("Group")
+        if group_val:
+            import re
+            parts = re.split(r'[\+\/,;]', str(group_val))
+            # Delete old mappings for this product first
+            cursor.execute('DELETE FROM product_frac_codes WHERE product_id = %s', (product_id,))
+            for part in parts:
+                p_clean = part.strip()
+                if p_clean and p_clean.lower() not in ["nan", "none", "null", ""]:
+                    if p_clean.lower().startswith('m') and len(p_clean) > 1:
+                        p_clean = 'M' + p_clean[1:]
+                    # Ensure lookup exists
+                    cursor.execute('INSERT INTO frac_codes (code, description) VALUES (%s, %s) ON CONFLICT (code) DO NOTHING;', (p_clean, ''))
+                    cursor.execute('INSERT INTO product_frac_codes (product_id, frac_code) VALUES (%s, %s) ON CONFLICT (product_id, frac_code) DO NOTHING;', (product_id, p_clean))
 
     def add_entry(self, entry_data: Dict) -> int:
         conn = self._get_connection()

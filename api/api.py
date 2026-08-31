@@ -70,6 +70,69 @@ def get_volume_units():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+@app.route('/api/frac_codes', methods=['GET'])
+def get_frac_codes():
+    try:
+        conn = repo._get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT code, description FROM frac_codes ORDER BY code')
+        codes = [{'code': r[0], 'description': r[1]} for r in cursor.fetchall()]
+        cursor.close()
+        conn.close()
+        return jsonify(codes)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/frac_codes', methods=['POST'])
+def add_frac_code():
+    try:
+        data = request.json
+        code = data.get("code")
+        description = data.get("description", "")
+        if not code or str(code).strip() == "":
+            return jsonify({'status': 'error', 'message': 'Code is required'}), 400
+        
+        conn = repo._get_connection()
+        cursor = conn.cursor()
+        cursor.execute('INSERT INTO frac_codes (code, description) VALUES (%s, %s) ON CONFLICT (code) DO NOTHING', (str(code).strip(), description))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+def normalize_and_validate_frac_codes(frac_val):
+    if not frac_val or str(frac_val).strip() == "":
+        return "", True
+    
+    import re
+    parts = re.split(r'[\+\/,;]', str(frac_val))
+    conn = repo._get_connection()
+    cursor = conn.cursor()
+    
+    normalized_parts = []
+    try:
+        for part in parts:
+            part_clean = part.strip()
+            if part_clean and part_clean.lower() not in ["nan", "none", "null", ""]:
+                if part_clean.lower().startswith('m') and len(part_clean) > 1:
+                    part_clean = 'M' + part_clean[1:]
+                cursor.execute('SELECT code FROM frac_codes WHERE LOWER(code) = LOWER(%s) LIMIT 1', (part_clean,))
+                row = cursor.fetchone()
+                if not row:
+                    cursor.close()
+                    conn.close()
+                    return "", False
+                normalized_parts.append(row[0])
+        cursor.close()
+        conn.close()
+        return " + ".join(normalized_parts), True
+    except Exception:
+        cursor.close()
+        conn.close()
+        return "", False
+
 @app.route('/api/products/<name>', methods=['PUT'])
 def update_product(name):
     try:
@@ -90,6 +153,12 @@ def update_product(name):
         ]
         filtered_data = {k: v for k, v in data.items() if k in valid_keys}
         
+        if "FRAC" in filtered_data:
+            norm_val, is_valid = normalize_and_validate_frac_codes(filtered_data["FRAC"])
+            if not is_valid:
+                return jsonify({'status': 'error', 'message': f'Invalid FRAC code(s): {filtered_data["FRAC"]}. All parts must exist in the database lookup table.'}), 400
+            filtered_data["FRAC"] = norm_val
+            
         repo.update_product(name, filtered_data)
         return jsonify({'status': 'success'})
     except Exception as e:
@@ -118,6 +187,12 @@ def add_product():
         ]
         filtered_data = {k: v for k, v in data.items() if k in valid_keys}
         
+        if "FRAC" in filtered_data:
+            norm_val, is_valid = normalize_and_validate_frac_codes(filtered_data["FRAC"])
+            if not is_valid:
+                return jsonify({'status': 'error', 'message': f'Invalid FRAC code(s): {filtered_data["FRAC"]}. All parts must exist in the database lookup table.'}), 400
+            filtered_data["FRAC"] = norm_val
+            
         repo.add_product(filtered_data)
         return jsonify({'status': 'success'})
     except Exception as e:

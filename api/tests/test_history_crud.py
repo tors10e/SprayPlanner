@@ -9,6 +9,15 @@ def history_repo():
     return SprayHistoryRepository(config)
 
 def test_history_crud_flow(history_repo):
+    # 0. Clean up previous runs
+    conn = history_repo._get_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM spray_history WHERE "Pesticide" = %s', ("Test_Pesticide_Log",))
+    cursor.execute('DELETE FROM products WHERE "Product" = %s', ("Test_Pesticide_Log",))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
     # 1. Add unique entry
     new_entry_data = {
         "Spray #": 99,

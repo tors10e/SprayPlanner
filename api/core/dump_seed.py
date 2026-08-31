@@ -22,7 +22,9 @@ def dump_db_to_json():
     
     tables = [
         "volume_units",
+        "frac_codes",
         "products",
+        "product_frac_codes",
         "vineyard_blocks",
         "vineyard_rows",
         "spray_events",

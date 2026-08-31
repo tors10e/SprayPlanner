@@ -3255,5 +3255,135 @@
       "PHI Date": "8/7/26",
       "REI_TIME": "0900"
     }
+  ],
+  "frac_codes": [
+    {
+      "code": "",
+      "description": ""
+    },
+    {
+      "code": "1",
+      "description": ""
+    },
+    {
+      "code": "11",
+      "description": ""
+    },
+    {
+      "code": "12",
+      "description": ""
+    },
+    {
+      "code": "13",
+      "description": ""
+    },
+    {
+      "code": "17",
+      "description": ""
+    },
+    {
+      "code": "18",
+      "description": ""
+    },
+    {
+      "code": "19",
+      "description": ""
+    },
+    {
+      "code": "2",
+      "description": ""
+    },
+    {
+      "code": "21",
+      "description": ""
+    },
+    {
+      "code": "27",
+      "description": ""
+    },
+    {
+      "code": "3",
+      "description": ""
+    },
+    {
+      "code": "4",
+      "description": ""
+    },
+    {
+      "code": "40",
+      "description": ""
+    },
+    {
+      "code": "45",
+      "description": ""
+    },
+    {
+      "code": "7",
+      "description": ""
+    },
+    {
+      "code": "9",
+      "description": ""
+    },
+    {
+      "code": "BM02",
+      "description": ""
+    },
+    {
+      "code": "IRAC 1A",
+      "description": ""
+    },
+    {
+      "code": "IRAC 3A",
+      "description": ""
+    },
+    {
+      "code": "M",
+      "description": ""
+    },
+    {
+      "code": "M01",
+      "description": ""
+    },
+    {
+      "code": "M02",
+      "description": ""
+    },
+    {
+      "code": "M03",
+      "description": ""
+    },
+    {
+      "code": "M04",
+      "description": ""
+    },
+    {
+      "code": "M3",
+      "description": ""
+    },
+    {
+      "code": "U06",
+      "description": ""
+    },
+    {
+      "code": "UN",
+      "description": ""
+    },
+    {
+      "code": "WSSA 10",
+      "description": ""
+    },
+    {
+      "code": "WSSA 9",
+      "description": ""
+    },
+    {
+      "code": "test_group",
+      "description": ""
+    },
+    {
+      "code": "u8",
+      "description": ""
+    }
   ]
 }

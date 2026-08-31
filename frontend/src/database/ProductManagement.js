@@ -48,6 +48,8 @@ const ProductManagement = () => {
 
     const [products, setProducts] = useState([]);
     const [volumeUnits, setVolumeUnits] = useState([]);
+    const [fracCodes, setFracCodes] = useState([]);
+    const [newFracCode, setNewFracCode] = useState("");
     const [showModal, setShowModal] = useState(false);
     const [originalName, setOriginalName] = useState(null);
     const [formData, setFormData] = useState({});
@@ -61,6 +63,7 @@ const ProductManagement = () => {
     useEffect(() => {
         fetchProducts();
         fetchVolumeUnits();
+        fetchFracCodes();
     }, []);
 
     const fetchVolumeUnits = async () => {
@@ -71,6 +74,17 @@ const ProductManagement = () => {
             setVolumeUnits(data);
         } catch (error) {
             console.error("Error fetching volume units:", error);
+        }
+    };
+
+    const fetchFracCodes = async () => {
+        try {
+            const url = API_BASE.replace('/products', '/frac_codes');
+            const response = await fetch(url);
+            const data = await response.json();
+            setFracCodes(data);
+        } catch (error) {
+            console.error("Error fetching FRAC codes:", error);
         }
     };
 
@@ -310,13 +324,83 @@ const ProductManagement = () => {
                         </Row>
 
                         <Row>
-                            <Col md={3}>
+                            <Col md={6}>
                                 <Form.Group className="mb-3">
-                                    <Form.Label>FRAC</Form.Label>
-                                    <Form.Control type="text" name="FRAC" value={formData.FRAC || ''} onChange={handleChange} />
+                                    <Form.Label>FRAC Code(s) <small className="text-muted">(select multiple)</small></Form.Label>
+                                    <div style={{ maxHeight: "120px", overflowY: "auto", border: "1px solid #ced4da", borderRadius: "0.375rem", padding: "0.5rem" }} className="mb-2 bg-white">
+                                        {fracCodes.filter(f => f.code).map((item) => {
+                                            const selectedFracList = formData.FRAC ? formData.FRAC.split(/[\+,]/).map(f => f.trim()).filter(Boolean) : [];
+                                            const isChecked = selectedFracList.some(x => x.toLowerCase() === item.code.toLowerCase());
+                                            return (
+                                                <Form.Check 
+                                                    key={item.code}
+                                                    type="checkbox"
+                                                    id={`frac-check-${item.code}`}
+                                                    label={item.code}
+                                                    checked={isChecked}
+                                                    onChange={(e) => {
+                                                        let newList;
+                                                        if (e.target.checked) {
+                                                            newList = [...selectedFracList.filter(x => x.toLowerCase() !== item.code.toLowerCase()), item.code];
+                                                        } else {
+                                                            newList = selectedFracList.filter(x => x.toLowerCase() !== item.code.toLowerCase());
+                                                        }
+                                                        setFormData({ ...formData, FRAC: newList.filter(Boolean).join(" + ") });
+                                                    }}
+                                                />
+                                            );
+                                        })}
+                                    </div>
+                                    <div className="d-flex align-items-center">
+                                        <Form.Control 
+                                            type="text" 
+                                            placeholder="New FRAC code..." 
+                                            value={newFracCode}
+                                            onChange={(e) => setNewFracCode(e.target.value)}
+                                            className="me-2 py-1 form-control-sm"
+                                            style={{ maxWidth: "150px" }}
+                                        />
+                                        <Button 
+                                            variant="outline-secondary" 
+                                            size="sm"
+                                            onClick={async () => {
+                                                const codeToAdd = newFracCode.trim();
+                                                if (!codeToAdd) return;
+                                                const selectedFracList = formData.FRAC ? formData.FRAC.split(/[\+,]/).map(f => f.trim()).filter(Boolean) : [];
+                                                if (fracCodes.some(f => f.code.toUpperCase() === codeToAdd.toUpperCase())) {
+                                                    const actualCode = fracCodes.find(f => f.code.toUpperCase() === codeToAdd.toUpperCase()).code;
+                                                    if (!selectedFracList.some(x => x.toLowerCase() === actualCode.toLowerCase())) {
+                                                        setFormData({ ...formData, FRAC: [...selectedFracList, actualCode].filter(Boolean).join(" + ") });
+                                                    }
+                                                    setNewFracCode("");
+                                                    return;
+                                                }
+                                                try {
+                                                    const url = API_BASE.replace('/products', '/frac_codes');
+                                                    const resp = await fetch(url, {
+                                                        method: 'POST',
+                                                        headers: { 'Content-Type': 'application/json' },
+                                                        body: JSON.stringify({ code: codeToAdd })
+                                                    });
+                                                    if (resp.ok) {
+                                                        await fetchFracCodes();
+                                                        setFormData({ ...formData, FRAC: [...selectedFracList, codeToAdd].filter(Boolean).join(" + ") });
+                                                        setNewFracCode("");
+                                                    } else {
+                                                        const err = await resp.text();
+                                                        alert("Error adding code: " + err);
+                                                    }
+                                                } catch (err) {
+                                                    console.error(err);
+                                                }
+                                            }}
+                                        >
+                                            Add &amp; Select
+                                        </Button>
+                                    </div>
                                 </Form.Group>
                             </Col>
-                            <Col md={3}>
+                            <Col md={2}>
                                 <Form.Group className="mb-3">
                                     <Form.Label>OMRI</Form.Label>
                                     <Form.Select name="omri" value={formData.omri ?? 0} onChange={handleChange}>
@@ -325,13 +409,13 @@ const ProductManagement = () => {
                                     </Form.Select>
                                 </Form.Group>
                             </Col>
-                            <Col md={3}>
+                            <Col md={2}>
                                 <Form.Group className="mb-3">
                                     <Form.Label>PHI (days)</Form.Label>
                                     <Form.Control type="number" name="phi" value={formData.phi ?? 0} onChange={handleChange} />
                                 </Form.Group>
                             </Col>
-                            <Col md={3}>
+                            <Col md={2}>
                                 <Form.Group className="mb-3">
                                     <Form.Label>REI (hours)</Form.Label>
                                     <Form.Control type="number" name="rei" value={formData.rei ?? 0} onChange={handleChange} />
