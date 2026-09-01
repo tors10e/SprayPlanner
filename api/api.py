@@ -51,6 +51,7 @@ def get_products():
         'ppe_protective_eyewear': p.ppe_protective_eyewear,
         'min_rate': p.min_rate,
         'max_rate': p.max_rate,
+        'max_annual_rate': p.max_annual_rate,
         'EPA No': p.epa_no,
         'Active Ingredient': p.active_ingredient,
         'Singal Word': p.signal_word,
@@ -149,7 +150,7 @@ def update_product(name):
             "package_size", "price_source", "label_url", "rei",
             "ppe_long_sleeves_pants", "ppe_socks_shoes",
             "ppe_waterproof_gloves", "ppe_protective_eyewear",
-            "min_rate", "max_rate", "EPA No", "Active Ingredient", "Singal Word"
+            "min_rate", "max_rate", "max_annual_rate", "EPA No", "Active Ingredient", "Singal Word"
         ]
         filtered_data = {k: v for k, v in data.items() if k in valid_keys}
         
@@ -183,7 +184,7 @@ def add_product():
             "package_size", "price_source", "label_url", "rei",
             "ppe_long_sleeves_pants", "ppe_socks_shoes",
             "ppe_waterproof_gloves", "ppe_protective_eyewear",
-            "min_rate", "max_rate", "EPA No", "Active Ingredient", "Singal Word"
+            "min_rate", "max_rate", "max_annual_rate", "EPA No", "Active Ingredient", "Singal Word"
         ]
         filtered_data = {k: v for k, v in data.items() if k in valid_keys}
         

@@ -29,6 +29,7 @@ const EMPTY_FORM = {
     'ppe_protective_eyewear': false,
     'min_rate': 0,
     'max_rate': 0,
+    'max_annual_rate': 0,
     'EPA No': '',
     'Active Ingredient': '',
     'Singal Word': '',
@@ -53,6 +54,8 @@ const ProductManagement = () => {
     const [showModal, setShowModal] = useState(false);
     const [originalName, setOriginalName] = useState(null);
     const [formData, setFormData] = useState({});
+    const [initialFormData, setInitialFormData] = useState(null);
+    const [showUnsavedModal, setShowUnsavedModal] = useState(false);
 
     // Replacement Modal State
     const [showReplacementModal, setShowReplacementModal] = useState(false);
@@ -99,17 +102,36 @@ const ProductManagement = () => {
     };
 
     const handleShow = (product = null) => {
+        let initialData;
         if (product) {
             setOriginalName(product.Product);
-            setFormData({ ...product });
+            initialData = { ...product };
         } else {
             setOriginalName(null);
-            setFormData({ ...EMPTY_FORM });
+            initialData = { ...EMPTY_FORM };
         }
+        setFormData(initialData);
+        setInitialFormData(JSON.parse(JSON.stringify(initialData)));
         setShowModal(true);
     };
 
-    const handleClose = () => setShowModal(false);
+    const isFormDirty = () => {
+        if (!initialFormData) return false;
+        return JSON.stringify(formData) !== JSON.stringify(initialFormData);
+    };
+
+    const handleRequestClose = () => {
+        if (isFormDirty()) {
+            setShowUnsavedModal(true);
+        } else {
+            setShowModal(false);
+        }
+    };
+
+    const handleForceDiscard = () => {
+        setShowUnsavedModal(false);
+        setShowModal(false);
+    };
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
@@ -125,14 +147,53 @@ const ProductManagement = () => {
         } else if (type === 'checkbox') {
             setFormData({ ...formData, [name]: checked });
         } else {
-            setFormData({ ...formData, [name]: value });
+            let updated = { ...formData, [name]: value };
+
+            // Auto-calculate Dose (avg) from min_rate and max_rate
+            if (name === 'min_rate' || name === 'max_rate') {
+                const minVal = name === 'min_rate' ? (parseFloat(value) || 0) : (parseFloat(formData.min_rate) || 0);
+                const maxVal = name === 'max_rate' ? (parseFloat(value) || 0) : (parseFloat(formData.max_rate) || 0);
+
+                let avgDose = 0;
+                if (minVal > 0 && maxVal > 0) {
+                    avgDose = parseFloat(((minVal + maxVal) / 2).toFixed(2));
+                } else if (minVal > 0) {
+                    avgDose = minVal;
+                } else if (maxVal > 0) {
+                    avgDose = maxVal;
+                }
+                updated['Dose (avg)'] = avgDose;
+
+                // Also update Cost/Dose if price and size exist
+                const price = parseFloat(formData.Price) || 0;
+                const pkgSize = parseFloat(formData.package_size) || 0;
+                const contSize = parseFloat(formData['Container Size']) || 0;
+                const size = pkgSize > 0 ? pkgSize : contSize;
+                if (price > 0 && size > 0 && avgDose > 0) {
+                    updated['Cost/Dose'] = parseFloat(((price / size) * avgDose).toFixed(2));
+                }
+            }
+
+            // Auto-calculate Cost/Dose when Price, Container Size, package_size, or Dose (avg) changes
+            if (name === 'Price' || name === 'package_size' || name === 'Container Size' || name === 'Dose (avg)') {
+                const price = name === 'Price' ? (parseFloat(value) || 0) : (parseFloat(formData.Price) || 0);
+                const pkgSize = name === 'package_size' ? (parseFloat(value) || 0) : (parseFloat(formData.package_size) || 0);
+                const contSize = name === 'Container Size' ? (parseFloat(value) || 0) : (parseFloat(formData['Container Size']) || 0);
+                const size = pkgSize > 0 ? pkgSize : contSize;
+                const avgDose = name === 'Dose (avg)' ? (parseFloat(value) || 0) : (parseFloat(formData['Dose (avg)']) || 0);
+
+                if (price > 0 && size > 0 && avgDose > 0) {
+                    updated['Cost/Dose'] = parseFloat(((price / size) * avgDose).toFixed(2));
+                }
+            }
+
+            setFormData(updated);
         }
     };
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
+    const saveProduct = async () => {
         const method = originalName ? "PUT" : "POST";
-        const url = originalName ? `${API_BASE}/${originalName}` : API_BASE;
+        const url = originalName ? `${API_BASE}/${encodeURIComponent(originalName)}` : API_BASE;
 
         console.log("Submitting:", { method, url, formData });
 
@@ -145,15 +206,28 @@ const ProductManagement = () => {
             if (response.ok) {
                 alert("Product saved successfully!");
                 fetchProducts();
-                handleClose();
+                setShowModal(false);
+                return true;
             } else {
                 const errorData = await response.text();
                 alert("Error saving product: " + response.status + " " + errorData);
+                return false;
             }
         } catch (error) {
             console.error("Error saving product:", error);
             alert("Network error: " + error.message);
+            return false;
         }
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        await saveProduct();
+    };
+
+    const handleSaveAndClose = async () => {
+        setShowUnsavedModal(false);
+        await saveProduct();
     };
 
     const handleDelete = async (name) => {
@@ -253,7 +327,7 @@ const ProductManagement = () => {
                 </Table>
             </div>
 
-            <Modal show={showModal} onHide={handleClose} size="lg">
+            <Modal show={showModal} onHide={handleRequestClose} size="lg">
                 <Modal.Header closeButton>
                     <Modal.Title>{originalName ? "Edit Product" : "Add Product"}</Modal.Title>
                 </Modal.Header>
@@ -494,18 +568,24 @@ const ProductManagement = () => {
 
                         {/* ── Application Rates ── */}
                         <hr />
-                        <h5 className="mb-2">Application Rates</h5>
+                        <h5 className="mb-2">Application Rates &amp; Annual Limits</h5>
                         <Row>
-                            <Col md={6}>
+                            <Col md={4}>
                                 <Form.Group className="mb-3">
-                                    <Form.Label>Minimum Rate</Form.Label>
+                                    <Form.Label>Minimum Rate ({formData.units || 'unit'}/Ac)</Form.Label>
                                     <Form.Control type="number" step="0.1" name="min_rate" value={formData.min_rate ?? 0} onChange={handleChange} />
                                 </Form.Group>
                             </Col>
-                            <Col md={6}>
+                            <Col md={4}>
                                 <Form.Group className="mb-3">
-                                    <Form.Label>Maximum Rate</Form.Label>
+                                    <Form.Label>Maximum Rate ({formData.units || 'unit'}/Ac)</Form.Label>
                                     <Form.Control type="number" step="0.1" name="max_rate" value={formData.max_rate ?? 0} onChange={handleChange} />
+                                </Form.Group>
+                            </Col>
+                            <Col md={4}>
+                                <Form.Group className="mb-3">
+                                    <Form.Label>Max Annual Rate ({formData.units || 'unit'}/Ac/Year)</Form.Label>
+                                    <Form.Control type="number" step="0.1" name="max_annual_rate" value={formData.max_annual_rate ?? 0} onChange={handleChange} placeholder="Legal max/acre/year" />
                                 </Form.Group>
                             </Col>
                         </Row>
@@ -580,9 +660,41 @@ const ProductManagement = () => {
                             ))}
                         </Row>
 
-                        <Button variant="primary" type="submit">Save Changes</Button>
+                        <div className="d-flex justify-content-between align-items-center mt-4 pt-3 border-top">
+                            <Button variant="secondary" type="button" onClick={handleRequestClose}>
+                                Cancel
+                            </Button>
+                            <Button variant="primary" type="submit">
+                                Save Changes
+                            </Button>
+                        </div>
                     </Form>
                 </Modal.Body>
+            </Modal>
+
+            {/* ── Unsaved Changes Confirmation Modal ── */}
+            <Modal show={showUnsavedModal} onHide={() => setShowUnsavedModal(false)} centered>
+                <Modal.Header closeButton>
+                    <Modal.Title>Unsaved Changes</Modal.Title>
+                </Modal.Header>
+                <Modal.Body>
+                    <p className="m-0">
+                        You have unsaved changes for <strong>{formData.Product || 'this product'}</strong>. Would you like to save your changes before closing?
+                    </p>
+                </Modal.Body>
+                <Modal.Footer className="d-flex justify-content-between">
+                    <Button variant="outline-danger" onClick={handleForceDiscard}>
+                        Discard Changes
+                    </Button>
+                    <div>
+                        <Button variant="secondary" className="me-2" onClick={() => setShowUnsavedModal(false)}>
+                            Keep Editing
+                        </Button>
+                        <Button variant="primary" onClick={handleSaveAndClose}>
+                            Save Changes
+                        </Button>
+                    </div>
+                </Modal.Footer>
             </Modal>
 
             {/* ── Chemical Replacement & Deletion Modal ── */}

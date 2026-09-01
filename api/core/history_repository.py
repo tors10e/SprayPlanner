@@ -60,6 +60,8 @@ class SprayHistoryRepository:
             p.units as "Units",
             p.min_rate as "Min Dose",
             p.max_rate as "Max Dose",
+            p.max_annual_rate as "Max Annual Rate",
+            p."Max Applications" as "Max Applications",
             e.id as event_id,
             b.id as block_application_id
         FROM spray_history h
@@ -105,7 +107,9 @@ class SprayHistoryRepository:
                 dose_units=str(row["Dose Units"]) if pd.notna(row["Dose Units"]) else "",
                 notes=str(row["Notes"]) if pd.notna(row["Notes"]) else "",
                 event_id=int(row["event_id"]) if pd.notna(row["event_id"]) else None,
-                block_application_id=int(row["block_application_id"]) if pd.notna(row["block_application_id"]) else None
+                block_application_id=int(row["block_application_id"]) if pd.notna(row["block_application_id"]) else None,
+                max_annual_rate=float(row["Max Annual Rate"]) if "Max Annual Rate" in row and pd.notna(row["Max Annual Rate"]) else None,
+                max_applications=int(row["Max Applications"]) if "Max Applications" in row and pd.notna(row["Max Applications"]) else None
             )
             entries.append(entry)
             

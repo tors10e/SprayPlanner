@@ -103,6 +103,21 @@ def migrate_csv_to_postgres():
                         for k, v in defaults.items():
                             cursor.execute("INSERT INTO system_settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING;", (k, v))
                         
+                        cursor.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS package_size NUMERIC(6,1);")
+                        cursor.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS price_source TEXT;")
+                        cursor.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS label_url TEXT;")
+                        cursor.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS rei INTEGER;")
+                        cursor.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS ppe_long_sleeves_pants BOOLEAN DEFAULT FALSE;")
+                        cursor.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS ppe_socks_shoes BOOLEAN DEFAULT FALSE;")
+                        cursor.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS ppe_waterproof_gloves BOOLEAN DEFAULT FALSE;")
+                        cursor.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS ppe_protective_eyewear BOOLEAN DEFAULT FALSE;")
+                        cursor.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS min_rate NUMERIC(4,1);")
+                        cursor.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS max_rate NUMERIC(4,1);")
+                        cursor.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS max_annual_rate DOUBLE PRECISION DEFAULT 0;")
+                        cursor.execute('ALTER TABLE products ADD COLUMN IF NOT EXISTS "EPA No" VARCHAR(100);')
+                        cursor.execute('ALTER TABLE products ADD COLUMN IF NOT EXISTS "Active Ingredient" VARCHAR(200);')
+                        cursor.execute('ALTER TABLE products ADD COLUMN IF NOT EXISTS "Singal Word" VARCHAR(100);')
+
                         # Create and seed 'frac_codes' lookup table
                         cursor.execute("""
                         CREATE TABLE IF NOT EXISTS frac_codes (
@@ -366,6 +381,7 @@ def migrate_csv_to_postgres():
         ppe_protective_eyewear BOOLEAN DEFAULT FALSE,
         min_rate NUMERIC(4,1),
         max_rate NUMERIC(4,1),
+        max_annual_rate NUMERIC(6,2) DEFAULT 0,
         "EPA No" VARCHAR(100),
         "Active Ingredient" VARCHAR(200),
         "Singal Word" VARCHAR(100)
@@ -395,7 +411,7 @@ def migrate_csv_to_postgres():
         "package_size", "price_source", "label_url", "rei",
         "ppe_long_sleeves_pants", "ppe_socks_shoes",
         "ppe_waterproof_gloves", "ppe_protective_eyewear",
-        "min_rate", "max_rate", "EPA No", "Active Ingredient", "Singal Word"
+        "min_rate", "max_rate", "max_annual_rate", "EPA No", "Active Ingredient", "Singal Word"
     ]
 
     columns_str = ", ".join([f'"{c}"' for c in all_cols])
@@ -411,7 +427,7 @@ def migrate_csv_to_postgres():
             if pd.isna(val) or str(val).strip() == '' or str(val).lower() == 'nan':
                 val = None
             vals.append(val)
-        vals += [None, None, None, None, False, False, False, False, None, None, None, None, None]
+        vals += [None, None, None, None, False, False, False, False, None, None, 0.0, None, None, None]
         cursor.execute(insert_sql, vals)
         product_id = cursor.fetchone()[0]
         

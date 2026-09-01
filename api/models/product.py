@@ -26,6 +26,7 @@ class Product:
         ppe_protective_eyewear: bool = False,
         min_rate: float = 0.0,
         max_rate: float = 0.0,
+        max_annual_rate: float = 0.0,
         epa_no: str = "",
         active_ingredient: str = "",
         signal_word: str = ""
@@ -53,6 +54,7 @@ class Product:
         self.ppe_protective_eyewear = ppe_protective_eyewear
         self.min_rate = min_rate
         self.max_rate = max_rate
+        self.max_annual_rate = max_annual_rate
         self.epa_no = epa_no
         self.active_ingredient = active_ingredient
         self.signal_word = signal_word
