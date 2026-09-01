@@ -43,6 +43,7 @@ def test_postgres_crud_flow(repo):
         "ppe_protective_eyewear": False,
         "min_rate": 1.5,
         "max_rate": 3.0,
+        "max_annual_rate": 12.0,
         "Anthracnose": "na",
         "Black Rot": "na",
         "Bitter Rot": "na",
@@ -61,7 +62,7 @@ def test_postgres_crud_flow(repo):
     assert inserted_product is not None
     assert inserted_product.name == test_product_name
     assert inserted_product.primary_disease == "Powdery"
-    assert inserted_product.frac_codes == ["3", "11"]
+    assert set(inserted_product.frac_codes) == {"3", "11"}
     assert inserted_product.omri == "1"
     assert inserted_product.phi == 7
     assert inserted_product.max_applications == 4
@@ -80,6 +81,7 @@ def test_postgres_crud_flow(repo):
     assert inserted_product.ppe_protective_eyewear is False
     assert inserted_product.min_rate == 1.5
     assert inserted_product.max_rate == 3.0
+    assert inserted_product.max_annual_rate == 12.0
     assert inserted_product.effectiveness["Powdery"] == 3.0  # 'vg' maps to 3.0
     
     # 4. UPDATE (Modify values)
@@ -105,6 +107,7 @@ def test_postgres_crud_flow(repo):
         "ppe_protective_eyewear": True,
         "min_rate": 2.0,
         "max_rate": 5.0,
+        "max_annual_rate": 30.0,
         "Anthracnose": "na",
         "Black Rot": "na",
         "Bitter Rot": "na",
@@ -141,6 +144,7 @@ def test_postgres_crud_flow(repo):
     assert updated_product.ppe_protective_eyewear is True
     assert updated_product.min_rate == 2.0
     assert updated_product.max_rate == 5.0
+    assert updated_product.max_annual_rate == 30.0
     assert updated_product.effectiveness["Downy"] == 4.0  # 'e' maps to 4.0
     
     # 5. DELETE

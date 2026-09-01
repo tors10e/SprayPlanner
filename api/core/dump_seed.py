@@ -1,7 +1,11 @@
+import os
 import json
 import psycopg2
 import sys
-from config import Config
+try:
+    from core.config import Config
+except ImportError:
+    from config import Config
 
 def dump_db_to_json():
     config = Config()
@@ -22,11 +26,13 @@ def dump_db_to_json():
     
     tables = [
         "volume_units",
+        "frac_codes",
         "products",
+        "product_frac_codes",
         "vineyard_blocks",
         "vineyard_rows",
         "spray_events",
-        "block_events",
+        "block_applications",
         "spray_history",
         "system_settings"
     ]
@@ -73,7 +79,7 @@ def dump_db_to_json():
     cursor.close()
     conn.close()
     
-    seed_file = "api/core/db_seed_data.json"
+    seed_file = os.path.join(os.path.dirname(__file__), "db_seed_data.json")
     with open(seed_file, "w") as f:
         json.dump(dump_data, f, indent=2)
     print(f"Successfully wrote database seed data to {seed_file}!")

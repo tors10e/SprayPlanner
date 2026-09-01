@@ -27,7 +27,9 @@ class SprayHistoryEntry:
         dose_units: str,
         notes: str,
         event_id: int = None,
-        block_event_id: int = None
+        block_application_id: int = None,
+        max_annual_rate: float = None,
+        max_applications: int = None
     ):
         self.entry_id = entry_id
         self.spray_number = spray_number
@@ -55,7 +57,9 @@ class SprayHistoryEntry:
         self.dose_units = dose_units
         self.notes = notes
         self.event_id = event_id
-        self.block_event_id = block_event_id
+        self.block_application_id = block_application_id
+        self.max_annual_rate = max_annual_rate
+        self.max_applications = max_applications
 
     def to_dict(self) -> dict:
         return {
@@ -85,5 +89,7 @@ class SprayHistoryEntry:
             "Dose Units": self.dose_units,
             "Notes": self.notes,
             "event_id": self.event_id,
-            "block_event_id": self.block_event_id
+            "block_application_id": self.block_application_id,
+            "Max Annual Rate": self.max_annual_rate,
+            "Max Applications": self.max_applications
         }

@@ -1,0 +1,45 @@
+# 1. Version Control System files
+.git
+.gitignore
+.github
+
+# 2. Heavy Local Dependencies 
+node_modules/
+jspm_packages/
+.venv/
+env/
+venv/
+ENV/
+
+# 3. Build outputs, caches, and IDE configs
+dist/
+build/
+.next/
+.nuxt/
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# 4. Logs and temporary data
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# 5. Sensitive credentials and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+id_rsa
+
+# 6. Docker documentation and files (optional)
+Dockerfile
+docker-compose.yml
+.dockerignore
+README.md

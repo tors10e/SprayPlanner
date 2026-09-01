@@ -18,9 +18,10 @@ const getApiUrl = (path) => {
 
 function SprayReports() {
     const [history, setHistory] = useState([]);
+    const [products, setProducts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [timeRange, setTimeRange] = useState('past-year');
-    const [expandedChems, setExpandedChems] = useState({});
+    const [expandedBlockReports, setExpandedBlockReports] = useState({});
     const [expandedBlocks, setExpandedBlocks] = useState({});
     const [expandedPhiBlocks, setExpandedPhiBlocks] = useState({});
     const [expandedReiBlocks, setExpandedReiBlocks] = useState({});
@@ -29,8 +30,21 @@ function SprayReports() {
 
     useEffect(() => {
         fetchHistory();
+        fetchProducts();
         fetchRecommendations();
     }, []);
+
+    const fetchProducts = async () => {
+        try {
+            const response = await fetch(getApiUrl('/products'));
+            if (response.ok) {
+                const data = await response.json();
+                setProducts(data);
+            }
+        } catch (error) {
+            console.error('Error fetching products:', error);
+        }
+    };
 
     const fetchHistory = async () => {
         try {
@@ -125,95 +139,129 @@ function SprayReports() {
 
     const filteredLogs = getFilteredHistory();
 
-    // Grouping and aggregation logic
+    // Grouping and aggregation logic: Group by Vineyard Block, then by Product
     const getReportsData = () => {
-        // Group by (Pesticide, Rate Units) to prevent unit mixing
+        // Map products for fast lookup of legal limits and product specs
+        const productLookup = {};
+        products.forEach(p => {
+            if (p.Product) {
+                productLookup[p.Product.toLowerCase().trim()] = p;
+            }
+        });
+
+        // Group by Block -> Product
         const grouped = {};
 
         filteredLogs.forEach(item => {
-            const chem = item.Pesticide || 'Unknown Product';
+            const block = (item["Block "] || 'Unassigned Block').trim();
+            const chem = (item.Pesticide || 'Unknown Product').trim();
             const unit = item.Units || item["Rate Units"] || 'L';
-            const key = `${chem}-${unit}`;
+            const chemKey = `${chem}-${unit}`;
 
             const dose = item["Dose/acre"] || 0;
             const calcDose = item["Calculated Dose"] || 0;
             const calcDoseUnit = item["Dose Units"] || '';
-            const campaign = item["Spray #"];
-            const blockEventId = item.block_event_id;
-            const block = item["Block "] || '';
+            const frac = item.Group || '';
             const date = item["Date"] || '';
-            const endTime = item["End Time"] || '';
-            const litersAcre = item["Liters/Acre"] || 0;
+            const logDate = parseDate(date);
+            const dateTime = logDate ? logDate.getTime() : 0;
 
-            if (!grouped[key]) {
-                grouped[key] = {
-                    key: key,
+            if (!grouped[block]) {
+                grouped[block] = {
+                    block: block,
+                    totalSprays: 0,
+                    lastUsedDateStr: '',
+                    lastUsedDateTime: 0,
+                    products: {}
+                };
+            }
+
+            const bData = grouped[block];
+            bData.totalSprays += 1;
+            if (dateTime > bData.lastUsedDateTime) {
+                bData.lastUsedDateTime = dateTime;
+                bData.lastUsedDateStr = date;
+            }
+
+            if (!bData.products[chemKey]) {
+                const matchedProd = productLookup[chem.toLowerCase().trim()];
+                let maxAnnualLimit = null;
+                if (matchedProd) {
+                    if (matchedProd.max_annual_rate && Number(matchedProd.max_annual_rate) > 0) {
+                        maxAnnualLimit = Number(matchedProd.max_annual_rate);
+                    } else if (
+                        matchedProd['Max Applications'] && 
+                        Number(matchedProd['Max Applications']) < 999 && 
+                        Number(matchedProd['Max Applications']) > 0 && 
+                        matchedProd.max_rate && 
+                        Number(matchedProd.max_rate) > 0
+                    ) {
+                        maxAnnualLimit = Number(matchedProd['Max Applications']) * Number(matchedProd.max_rate);
+                    }
+                } else if (item["Max Annual Rate"] && Number(item["Max Annual Rate"]) > 0) {
+                    maxAnnualLimit = Number(item["Max Annual Rate"]);
+                } else if (
+                    item["Max Applications"] && 
+                    Number(item["Max Applications"]) < 999 && 
+                    Number(item["Max Applications"]) > 0 && 
+                    item["Max Dose"] && 
+                    Number(item["Max Dose"]) > 0
+                ) {
+                    maxAnnualLimit = Number(item["Max Applications"]) * Number(item["Max Dose"]);
+                }
+
+                bData.products[chemKey] = {
+                    key: chemKey,
                     chemical: chem,
+                    frac: frac || (matchedProd ? matchedProd.FRAC : ''),
                     unit: unit,
+                    spraysCount: 0,
                     totalDose: 0,
                     totalCalculatedDose: 0,
                     calculatedUnit: calcDoseUnit,
                     lastUsedDateStr: '',
                     lastUsedDateTime: 0,
-                    blocks: {},
-                    totalApplications: 0
+                    maxAnnualLimit: maxAnnualLimit
                 };
             }
 
-            grouped[key].totalApplications += 1;
-
-            grouped[key].totalDose += dose;
-            grouped[key].totalCalculatedDose += calcDose;
-            if (calcDoseUnit && !grouped[key].calculatedUnit) {
-                grouped[key].calculatedUnit = calcDoseUnit;
+            const pData = bData.products[chemKey];
+            pData.spraysCount += 1;
+            pData.totalDose += dose;
+            pData.totalCalculatedDose += calcDose;
+            if (calcDoseUnit && !pData.calculatedUnit) {
+                pData.calculatedUnit = calcDoseUnit;
             }
-
-            // Track overall last used date
-            const logDate = parseDate(date);
-            if (logDate) {
-                const t = logDate.getTime();
-                if (t > grouped[key].lastUsedDateTime) {
-                    grouped[key].lastUsedDateTime = t;
-                    grouped[key].lastUsedDateStr = date;
-                }
+            if (!pData.frac && frac) {
+                pData.frac = frac;
             }
-
-            // Track block-specific rollup details
-            if (block) {
-                if (!grouped[key].blocks[block]) {
-                    grouped[key].blocks[block] = {
-                        block: block,
-                        spraysCount: 0,
-                        totalDose: 0,
-                        totalCalculatedDose: 0,
-                        calculatedUnit: calcDoseUnit,
-                        lastUsedDateStr: '',
-                        lastUsedDateTime: 0
-                    };
-                }
-                const bData = grouped[key].blocks[block];
-                bData.spraysCount += 1;
-                bData.totalDose += dose;
-                bData.totalCalculatedDose += calcDose;
-                if (calcDoseUnit && !bData.calculatedUnit) {
-                    bData.calculatedUnit = calcDoseUnit;
-                }
-                if (logDate) {
-                    const t = logDate.getTime();
-                    if (t > bData.lastUsedDateTime) {
-                        bData.lastUsedDateTime = t;
-                        bData.lastUsedDateStr = date;
-                    }
-                }
+            if (dateTime > pData.lastUsedDateTime) {
+                pData.lastUsedDateTime = dateTime;
+                pData.lastUsedDateStr = date;
             }
         });
 
-        // Convert blocks to sorted list inside each group
-        Object.values(grouped).forEach(group => {
-            group.blocksList = Object.values(group.blocks).sort((a, b) => a.block.localeCompare(b.block));
-        });
+        // Convert products to sorted list inside each block group and compute limit stats
+        return Object.values(grouped).map(bData => {
+            const productsList = Object.values(bData.products).map(p => {
+                const pct = p.maxAnnualLimit && p.maxAnnualLimit > 0 ? (p.totalDose / p.maxAnnualLimit) * 100 : null;
+                return {
+                    ...p,
+                    pctOfLimit: pct
+                };
+            }).sort((a, b) => a.chemical.localeCompare(b.chemical));
 
-        return Object.values(grouped).sort((a, b) => a.chemical.localeCompare(b.chemical));
+            const overLimitCount = productsList.filter(p => p.pctOfLimit !== null && p.pctOfLimit >= 100).length;
+            const nearLimitCount = productsList.filter(p => p.pctOfLimit !== null && p.pctOfLimit >= 80 && p.pctOfLimit < 100).length;
+
+            return {
+                ...bData,
+                productsList: productsList,
+                uniqueProductsCount: productsList.length,
+                overLimitCount: overLimitCount,
+                nearLimitCount: nearLimitCount
+            };
+        }).sort((a, b) => a.block.localeCompare(b.block));
     };
 
     const getFracReportsData = () => {
@@ -268,10 +316,10 @@ function SprayReports() {
         }).sort((a, b) => a.block.localeCompare(b.block));
     };
 
-    const toggleExpand = (key) => {
-        setExpandedChems(prev => ({
+    const toggleBlockReport = (block) => {
+        setExpandedBlockReports(prev => ({
             ...prev,
-            [key]: !prev[key]
+            [block]: !prev[block]
         }));
     };
 
@@ -492,7 +540,7 @@ function SprayReports() {
     // Summary stats
     const totalChemicalsUsed = new Set(filteredLogs.map(l => l.Pesticide).filter(Boolean)).size;
     const totalCampaignRuns = new Set(filteredLogs.map(l => l["Spray #"]).filter(Boolean)).size;
-    const totalBlockApplications = new Set(filteredLogs.map(l => l.block_event_id).filter(Boolean)).size;
+    const totalBlockApplications = new Set(filteredLogs.map(l => l.block_application_id || l.block_event_id).filter(Boolean)).size;
 
     // Years option list from actual data logs
     const getAvailableYears = () => {
@@ -544,8 +592,8 @@ function SprayReports() {
                             <Col md={4}>
                                 <Card className="border-0 shadow-sm bg-primary text-white text-center py-3 w-100">
                                     <Card.Body>
-                                        <Card.Title className="small uppercase text-white-50">Active Chemicals Used</Card.Title>
-                                        <Card.Text className="h2 font-weight-bold">{totalChemicalsUsed}</Card.Text>
+                                        <Card.Title className="small uppercase text-white-50">Active Vineyard Blocks</Card.Title>
+                                        <Card.Text className="h2 font-weight-bold">{reportsData.length}</Card.Text>
                                     </Card.Body>
                                 </Card>
                             </Col>
@@ -570,7 +618,7 @@ function SprayReports() {
                         {/* Detailed Data Table */}
                         <Card className="border-0 shadow-sm w-100">
                             <Card.Header className="bg-dark text-white py-3">
-                                <h5 className="m-0">Chemical Application Aggregates</h5>
+                                <h5 className="m-0">Chemical Applications (by Vineyard Block)</h5>
                             </Card.Header>
                             <Card.Body className="p-0">
                                 {reportsData.length === 0 ? (
@@ -579,41 +627,53 @@ function SprayReports() {
                                     <Table hover responsive className="m-0 bg-white">
                                         <thead className="table-light">
                                             <tr>
-                                                <th style={{ width: '35%' }}>Chemical Product</th>
+                                                <th style={{ width: '30%' }}>Vineyard Block</th>
+                                                <th className="text-center" style={{ width: '15%' }}>Products Applied</th>
                                                 <th className="text-center" style={{ width: '15%' }}>Block Applications</th>
-                                                <th className="text-center" style={{ width: '15%' }}>Last Used Date</th>
-                                                <th className="text-end" style={{ width: '17%' }}>Total Dose/Acre Sprayed</th>
-                                                <th className="text-end" style={{ width: '18%' }}>Total Calculated Dose</th>
+                                                <th className="text-center" style={{ width: '18%' }}>Last Sprayed Date</th>
+                                                <th className="text-end" style={{ width: '22%' }}>Annual Limit Status</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {reportsData.map((row) => {
-                                                const isExpanded = !!expandedChems[row.key];
+                                                const isExpanded = !!expandedBlockReports[row.block];
                                                 return (
-                                                    <React.Fragment key={`report-group-${row.key}`}>
-                                                        {/* Parent Row */}
-                                                        <tr onClick={() => toggleExpand(row.key)} style={{ cursor: 'pointer' }}>
+                                                    <React.Fragment key={`report-block-${row.block}`}>
+                                                        {/* Parent Block Row */}
+                                                        <tr onClick={() => toggleBlockReport(row.block)} style={{ cursor: 'pointer' }}>
                                                             <td>
                                                                 <span className="text-secondary me-2">
                                                                     {isExpanded ? '▼' : '▶'}
                                                                 </span>
-                                                                <strong>{row.chemical}</strong>
+                                                                <strong className="text-primary fs-6">{row.block}</strong>
+                                                            </td>
+                                                            <td className="text-center">
+                                                                <Badge bg="info" text="dark" style={{ fontSize: '13px' }}>
+                                                                    {row.uniqueProductsCount} products
+                                                                </Badge>
                                                             </td>
                                                             <td className="text-center">
                                                                 <Badge bg="secondary" style={{ fontSize: '13px' }}>
-                                                                    {row.totalApplications} sprays
+                                                                    {row.totalSprays} sprays
                                                                 </Badge>
                                                             </td>
                                                             <td className="text-center text-muted small">
                                                                 {row.lastUsedDateStr || '-'}
                                                             </td>
-                                                            <td className="text-end text-success font-weight-bold">
-                                                                {row.totalDose.toFixed(2)} {row.unit}
-                                                            </td>
-                                                            <td className="text-end text-primary">
-                                                                {row.totalCalculatedDose > 0 
-                                                                    ? `${row.totalCalculatedDose.toFixed(1)} ${row.calculatedUnit}` 
-                                                                    : '-'}
+                                                            <td className="text-end">
+                                                                {row.overLimitCount > 0 ? (
+                                                                    <Badge bg="danger">
+                                                                        {row.overLimitCount} product(s) over limit
+                                                                    </Badge>
+                                                                ) : row.nearLimitCount > 0 ? (
+                                                                    <Badge bg="warning" text="dark">
+                                                                        {row.nearLimitCount} product(s) near limit
+                                                                    </Badge>
+                                                                ) : (
+                                                                    <Badge bg="success">
+                                                                        Within Legal Limits
+                                                                    </Badge>
+                                                                )}
                                                             </td>
                                                         </tr>
                                                         {/* Accordion Detail Breakdown Row */}
@@ -623,40 +683,72 @@ function SprayReports() {
                                                                     <div className="border rounded bg-white p-3 shadow-sm">
                                                                         <div className="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
                                                                             <h6 className="m-0 text-secondary">
-                                                                                Block Breakdown for <strong>{row.chemical}</strong>
+                                                                                Chemical Products Applied to <strong>{row.block}</strong>
                                                                             </h6>
-                                                                            <Badge bg="warning" text="dark">
-                                                                                Last Used: {row.lastUsedDateStr || 'N/A'}
+                                                                            <Badge bg="secondary">
+                                                                                Last Sprayed: {row.lastUsedDateStr || 'N/A'}
                                                                             </Badge>
                                                                         </div>
                                                                         <Table striped bordered hover size="sm" className="m-0">
                                                                             <thead className="table-light">
                                                                                 <tr>
-                                                                                    <th>Block</th>
-                                                                                    <th className="text-center">Sprays on Block</th>
-                                                                                    <th className="text-center">Last Used in Block</th>
-                                                                                    <th className="text-end">Total Dose/Ac Applied</th>
-                                                                                    <th className="text-end">Total Calculated Dose</th>
+                                                                                    <th style={{ width: '28%' }}>Chemical Product</th>
+                                                                                    <th className="text-center" style={{ width: '12%' }}>FRAC Group</th>
+                                                                                    <th className="text-center" style={{ width: '12%' }}>Sprays on Block</th>
+                                                                                    <th className="text-center" style={{ width: '14%' }}>Last Used Date</th>
+                                                                                    <th className="text-end" style={{ width: '20%' }}>Total Dose/Ac Applied &amp; Annual Limit</th>
+                                                                                    <th className="text-end" style={{ width: '14%' }}>Total Calculated Dose</th>
                                                                                 </tr>
                                                                             </thead>
                                                                             <tbody>
-                                                                                {row.blocksList.map((blk, blkIdx) => (
-                                                                                    <tr key={`blk-idx-${blkIdx}`}>
-                                                                                        <td className="font-weight-bold text-info">{blk.block}</td>
+                                                                                {row.productsList.map((p, pIdx) => (
+                                                                                    <tr key={`p-idx-${pIdx}`}>
+                                                                                        <td>
+                                                                                            <strong className="text-dark">{p.chemical}</strong>
+                                                                                        </td>
+                                                                                        <td className="text-center">
+                                                                                            {p.frac ? (
+                                                                                                <Badge bg="warning" text="dark" style={{ fontSize: '11px' }}>
+                                                                                                    Group {p.frac}
+                                                                                                </Badge>
+                                                                                            ) : (
+                                                                                                <span className="text-muted small">-</span>
+                                                                                            )}
+                                                                                        </td>
                                                                                         <td className="text-center">
                                                                                             <Badge bg="secondary" style={{ fontSize: '12px' }}>
-                                                                                                {blk.spraysCount} times
+                                                                                                {p.spraysCount} times
                                                                                             </Badge>
                                                                                         </td>
                                                                                         <td className="text-center text-muted small">
-                                                                                            {blk.lastUsedDateStr || '-'}
+                                                                                            {p.lastUsedDateStr || '-'}
                                                                                         </td>
-                                                                                        <td className="text-end text-success">
-                                                                                            {blk.totalDose.toFixed(2)} {row.unit}
+                                                                                        <td className="text-end">
+                                                                                            {p.maxAnnualLimit ? (
+                                                                                                <div>
+                                                                                                    <span className={`font-weight-bold ${p.pctOfLimit >= 100 ? 'text-danger' : p.pctOfLimit >= 80 ? 'text-warning' : 'text-success'}`}>
+                                                                                                        {p.totalDose.toFixed(2)} / {p.maxAnnualLimit.toFixed(2)} {p.unit}
+                                                                                                    </span>
+                                                                                                    <div className="small mt-1">
+                                                                                                        {p.pctOfLimit >= 100 ? (
+                                                                                                            <Badge bg="danger">{p.pctOfLimit.toFixed(0)}% (Max Exceeded)</Badge>
+                                                                                                        ) : p.pctOfLimit >= 80 ? (
+                                                                                                            <Badge bg="warning" text="dark">{p.pctOfLimit.toFixed(0)}% (Near Max Limit)</Badge>
+                                                                                                        ) : (
+                                                                                                            <Badge bg="success" style={{ opacity: 0.85 }}>{p.pctOfLimit.toFixed(0)}% of Max</Badge>
+                                                                                                        )}
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            ) : (
+                                                                                                <div>
+                                                                                                    <span className="text-success font-weight-bold">{p.totalDose.toFixed(2)} {p.unit}</span>
+                                                                                                    <div className="small text-muted">(No annual limit set)</div>
+                                                                                                </div>
+                                                                                            )}
                                                                                         </td>
                                                                                         <td className="text-end text-primary">
-                                                                                            {blk.totalCalculatedDose > 0 
-                                                                                                ? `${blk.totalCalculatedDose.toFixed(1)} ${blk.calculatedUnit}` 
+                                                                                            {p.totalCalculatedDose > 0 
+                                                                                                ? `${p.totalCalculatedDose.toFixed(1)} ${p.calculatedUnit}` 
                                                                                                 : '-'}
                                                                                         </td>
                                                                                     </tr>

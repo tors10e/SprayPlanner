@@ -36,7 +36,7 @@ const EMPTY_HISTORY_FORM = {
     end_time: "",
     liters_acre: "",
     event_id: null,
-    block_event_id: null,
+    block_application_id: null,
     rows: [{ ...EMPTY_ROW }]
 };
 
@@ -77,7 +77,7 @@ const calculateReiTime = (endTimeStr, reiHours) => {
 };
 
 const SprayHistory = () => {
-    ReactGA.send({ hitType: "pageview", page: "/history", title: "Spray History" });
+    ReactGA.send({ hitType: "pageview", page: "/history", title: "Pesticide Application" });
 
     const [history, setHistory] = useState([]);
     const [products, setProducts] = useState([]);
@@ -131,8 +131,8 @@ const SprayHistory = () => {
 
     const handleShow = (group = null, event = null) => {
         if (group && event) {
-            // Edit existing block event
-            setCurrentId(event.blockEventId);
+            // Edit existing block application
+            setCurrentId(event.blockApplicationId);
             setFormData({
                 spray_number: group.sprayNumber || "",
                 block: event.block || "",
@@ -140,11 +140,11 @@ const SprayHistory = () => {
                 end_time: event.endTime || "",
                 liters_acre: event.litersAcre || "",
                 event_id: group.eventId,
-                block_event_id: event.blockEventId,
+                block_application_id: event.blockApplicationId,
                 rows: event.items.map(item => ({ ...item }))
             });
         } else {
-            // Add new spray event
+            // Add new spray application
             const nextSprayNum = history.reduce((max, item) => (item["Spray #"] && item["Spray #"] > max ? item["Spray #"] : max), 0) + 1;
             const today = new Date();
             const formattedDate = (today.getMonth() + 1) + '/' + today.getDate() + '/' + String(today.getFullYear()).slice(-2);
@@ -160,8 +160,8 @@ const SprayHistory = () => {
     };
 
     const handleShowSingle = (event) => {
-        // Edit single unscheduled block event
-        setCurrentId(event.blockEventId);
+        // Edit single unscheduled block application
+        setCurrentId(event.blockApplicationId);
         setFormData({
             spray_number: "",
             block: event.block || "",
@@ -169,7 +169,7 @@ const SprayHistory = () => {
             end_time: event.endTime || "",
             liters_acre: event.litersAcre || "",
             event_id: null,
-            block_event_id: event.blockEventId,
+            block_application_id: event.blockApplicationId,
             rows: event.items.map(item => ({ ...item }))
         });
         setShowModal(true);
@@ -185,11 +185,11 @@ const SprayHistory = () => {
             end_time: "",
             liters_acre: event.litersAcre || "",
             event_id: null,
-            block_event_id: null,
+            block_application_id: null,
             rows: event.items.map(item => {
                 const rowCopy = { ...item };
                 delete rowCopy.id; // remove database keys
-                delete rowCopy.block_event_id;
+                delete rowCopy.block_application_id;
                 delete rowCopy.event_id;
                 return rowCopy;
             })
@@ -291,7 +291,7 @@ const SprayHistory = () => {
         
         const payload = {
             event_id: formData.event_id,
-            block_event_id: formData.block_event_id,
+            block_application_id: formData.block_application_id,
             spray_number: formData.spray_number === "" ? null : Number(formData.spray_number),
             block: formData.block,
             date: formData.date,
@@ -314,35 +314,35 @@ const SprayHistory = () => {
                 body: JSON.stringify(payload)
             });
             if (response.ok) {
-                alert("Block spray event saved successfully!");
+                alert("Block spray application saved successfully!");
                 fetchHistory();
                 handleClose();
             } else {
                 const errorData = await response.text();
-                alert("Error saving block event: " + response.status + " " + errorData);
+                alert("Error saving block application: " + response.status + " " + errorData);
             }
         } catch (error) {
-            console.error("Error saving block event:", error);
+            console.error("Error saving block application:", error);
             alert("Network error: " + error.message);
         }
     };
 
-    const handleDeleteEvent = async (blockEventId, sprayNumber, block, date) => {
+    const handleDeleteEvent = async (blockApplicationId, sprayNumber, block, date) => {
         const label = sprayNumber ? `Spray #${sprayNumber}, Block ${block}` : `Unscheduled Block ${block}`;
         if (window.confirm(`Are you sure you want to delete ${label} on ${date}?`)) {
             try {
                 const response = await fetch(`${HISTORY_API}/delete_event`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ block_event_id: blockEventId })
+                    body: JSON.stringify({ block_application_id: blockApplicationId })
                 });
                 if (response.ok) {
                     fetchHistory();
                 } else {
-                    alert("Error deleting event: " + response.statusText);
+                    alert("Error deleting application: " + response.statusText);
                 }
             } catch (error) {
-                console.error("Error deleting event:", error);
+                console.error("Error deleting application:", error);
             }
         }
     };
@@ -372,7 +372,7 @@ const SprayHistory = () => {
         }
     };
     const handleDeleteSprayGroup = async (sprayNumber, eventId) => {
-        if (window.confirm(`Are you sure you want to delete the entire Spray #${sprayNumber} (including all of its block events and chemicals)?`)) {
+        if (window.confirm(`Are you sure you want to delete the entire Spray #${sprayNumber} (including all of its block applications and chemicals)?`)) {
             try {
                 const response = await fetch(`${HISTORY_API}/delete_spray_group`, {
                     method: 'POST',
@@ -406,7 +406,8 @@ const SprayHistory = () => {
                     alert(`Successfully cloned Spray #${sprayNumber} to Spray #${newNum}!`);
                     fetchHistory();
                 } else {
-                    alert("Error cloning spray: " + response.statusText);
+                    const errorData = await response.json().catch(() => ({}));
+                    alert("Error cloning spray: " + (errorData.message || response.statusText));
                 }
             } catch (error) {
                 console.error("Error cloning spray:", error);
@@ -536,7 +537,7 @@ const SprayHistory = () => {
             const endTime = item["End Time"] || '';
             const litersAcre = item["Liters/Acre"];
             const eventId = item["event_id"];
-            const blockEventId = item["block_event_id"];
+            const blockApplicationId = item["block_application_id"] || item["block_event_id"]; // fallback support
             
             if (sprayNum !== null && sprayNum !== undefined && sprayNum !== "") {
                 const groupKey = `Event-${eventId}`;
@@ -548,10 +549,10 @@ const SprayHistory = () => {
                     };
                 }
                 
-                const blockKey = `Block-${blockEventId}`;
+                const blockKey = `Block-${blockApplicationId}`;
                 if (!groups[groupKey].blockEvents[blockKey]) {
                     groups[groupKey].blockEvents[blockKey] = {
-                        blockEventId: blockEventId,
+                        blockApplicationId: blockApplicationId,
                         block: block,
                         date: date,
                         endTime: endTime,
@@ -561,11 +562,11 @@ const SprayHistory = () => {
                 }
                 groups[groupKey].blockEvents[blockKey].items.push(item);
             } else {
-                // Unscheduled entries grouped by blockEventId
-                const blockKey = `Block-${blockEventId}`;
+                // Unscheduled entries grouped by blockApplicationId
+                const blockKey = `Block-${blockApplicationId}`;
                 if (!unscheduled[blockKey]) {
                     unscheduled[blockKey] = {
-                        blockEventId: blockEventId,
+                        blockApplicationId: blockApplicationId,
                         block: block,
                         date: date,
                         endTime: endTime,
@@ -645,7 +646,7 @@ const SprayHistory = () => {
                 {/* ── Actions (Add & Upload CSV) ── */}
                 <Row className="mb-3 align-items-center">
                     <Col md={6}>
-                        <Button variant="primary" onClick={() => handleShow()} className="me-2">Add Spray Event</Button>
+                        <Button variant="primary" onClick={() => handleShow()} className="me-2">Add Spray Application</Button>
                         <Button variant="outline-primary" onClick={exportToCsv}>Export CSV</Button>
                     </Col>
                     <Col md={6} className="text-md-end mt-2 mt-md-0">
@@ -671,7 +672,7 @@ const SprayHistory = () => {
                 )}
 
                 {/* ── Scheduled Spray Runs ── */}
-                <h4 className="mt-4 mb-3 text-secondary border-bottom pb-2">Scheduled Spray Events</h4>
+                <h4 className="mt-4 mb-3 text-secondary border-bottom pb-2">Scheduled Spray Applications</h4>
                 {groupedData.groups.length === 0 ? (
                     <p className="text-muted italic">No scheduled spray runs found.</p>
                 ) : (
@@ -694,7 +695,7 @@ const SprayHistory = () => {
                             </div>
                             
                             {group.events.map(event => (
-                                <Card key={`block-event-${group.sprayNumber}-${event.blockEventId}`} className="mb-4 border shadow-sm w-100">
+                                <Card key={`block-application-${group.sprayNumber}-${event.blockApplicationId}`} className="mb-4 border shadow-sm w-100">
                                     <Card.Header className="bg-dark text-white d-flex justify-content-between align-items-center py-2">
                                         <div>
                                             <span className="h5 me-3 align-middle text-info">Block: {event.block}</span>
@@ -704,9 +705,9 @@ const SprayHistory = () => {
                                             {event.litersAcre && <span className="badge bg-warning text-dark">{event.litersAcre} L/Ac Water</span>}
                                         </div>
                                         <div>
-                                            <Button variant="outline-success" size="sm" className="me-2 py-1" onClick={() => handleClone(group, event)}>Clone Event</Button>
-                                            <Button variant="outline-light" size="sm" className="me-2 py-1" onClick={() => handleShow(group, event)}>Edit Event</Button>
-                                            <Button variant="outline-danger" size="sm" className="py-1" onClick={() => handleDeleteEvent(event.blockEventId, group.sprayNumber, event.block, event.date)}>Delete Event</Button>
+                                            <Button variant="outline-success" size="sm" className="me-2 py-1" onClick={() => handleClone(group, event)}>Clone Application</Button>
+                                            <Button variant="outline-light" size="sm" className="me-2 py-1" onClick={() => handleShow(group, event)}>Edit Application</Button>
+                                            <Button variant="outline-danger" size="sm" className="py-1" onClick={() => handleDeleteEvent(event.blockApplicationId, group.sprayNumber, event.block, event.date)}>Delete Application</Button>
                                         </div>
                                     </Card.Header>
                                     <Card.Body className="p-0">
@@ -746,7 +747,7 @@ const SprayHistory = () => {
                     <div className="mt-5">
                         <h4 className="text-secondary border-bottom pb-2 mb-3">Individual &amp; Unscheduled Block Sprays</h4>
                         {groupedData.unscheduled.map(event => (
-                            <Card key={`unscheduled-event-${event.blockEventId}`} className="mb-4 border shadow-sm w-100">
+                            <Card key={`unscheduled-application-${event.blockApplicationId}`} className="mb-4 border shadow-sm w-100">
                                 <Card.Header className="bg-secondary text-white d-flex justify-content-between align-items-center py-2">
                                     <div>
                                         <span className="h5 me-3 align-middle text-warning">Block: {event.block}</span>
@@ -756,9 +757,9 @@ const SprayHistory = () => {
                                         {event.litersAcre && <span className="badge bg-warning text-dark">{event.litersAcre} L/Ac Water</span>}
                                     </div>
                                     <div>
-                                        <Button variant="outline-success" size="sm" className="me-2 py-1 text-white border-white" onClick={() => handleClone(null, event)}>Clone Event</Button>
-                                        <Button variant="outline-light" size="sm" className="me-2 py-1" onClick={() => handleShowSingle(event)}>Edit Event</Button>
-                                        <Button variant="outline-danger" size="sm" className="py-1 text-white border-danger bg-danger" onClick={() => handleDeleteEvent(event.blockEventId, null, event.block, event.date)}>Delete Event</Button>
+                                        <Button variant="outline-success" size="sm" className="me-2 py-1 text-white border-white" onClick={() => handleClone(null, event)}>Clone Application</Button>
+                                        <Button variant="outline-light" size="sm" className="me-2 py-1" onClick={() => handleShowSingle(event)}>Edit Application</Button>
+                                        <Button variant="outline-danger" size="sm" className="py-1 text-white border-danger bg-danger" onClick={() => handleDeleteEvent(event.blockApplicationId, null, event.block, event.date)}>Delete Application</Button>
                                     </div>
                                 </Card.Header>
                                 <Card.Body className="p-0">
@@ -804,7 +805,7 @@ const SprayHistory = () => {
                         {/* ── Header Details ── */}
                         <Card className="mb-4 border-0 shadow-sm w-100">
                             <Card.Body>
-                                <h5>Block Event Configuration</h5>
+                                <h5>Block Application Configuration</h5>
                                 <Row>
                                     <Col md={2}>
                                         <Form.Group className="mb-3">
@@ -908,7 +909,7 @@ const SprayHistory = () => {
 
                         <div className="text-end mt-4">
                             <Button variant="secondary" className="me-2" onClick={handleClose}>Cancel</Button>
-                            <Button variant="primary" type="submit">Save Block Event</Button>
+                            <Button variant="primary" type="submit">Save Block Application</Button>
                         </div>
                     </Form>
                 </Modal.Body>

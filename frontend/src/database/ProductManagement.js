@@ -29,6 +29,7 @@ const EMPTY_FORM = {
     'ppe_protective_eyewear': false,
     'min_rate': 0,
     'max_rate': 0,
+    'max_annual_rate': 0,
     'EPA No': '',
     'Active Ingredient': '',
     'Singal Word': '',
@@ -48,9 +49,13 @@ const ProductManagement = () => {
 
     const [products, setProducts] = useState([]);
     const [volumeUnits, setVolumeUnits] = useState([]);
+    const [fracCodes, setFracCodes] = useState([]);
+    const [newFracCode, setNewFracCode] = useState("");
     const [showModal, setShowModal] = useState(false);
     const [originalName, setOriginalName] = useState(null);
     const [formData, setFormData] = useState({});
+    const [initialFormData, setInitialFormData] = useState(null);
+    const [showUnsavedModal, setShowUnsavedModal] = useState(false);
 
     // Replacement Modal State
     const [showReplacementModal, setShowReplacementModal] = useState(false);
@@ -61,6 +66,7 @@ const ProductManagement = () => {
     useEffect(() => {
         fetchProducts();
         fetchVolumeUnits();
+        fetchFracCodes();
     }, []);
 
     const fetchVolumeUnits = async () => {
@@ -71,6 +77,17 @@ const ProductManagement = () => {
             setVolumeUnits(data);
         } catch (error) {
             console.error("Error fetching volume units:", error);
+        }
+    };
+
+    const fetchFracCodes = async () => {
+        try {
+            const url = API_BASE.replace('/products', '/frac_codes');
+            const response = await fetch(url);
+            const data = await response.json();
+            setFracCodes(data);
+        } catch (error) {
+            console.error("Error fetching FRAC codes:", error);
         }
     };
 
@@ -85,17 +102,36 @@ const ProductManagement = () => {
     };
 
     const handleShow = (product = null) => {
+        let initialData;
         if (product) {
             setOriginalName(product.Product);
-            setFormData({ ...product });
+            initialData = { ...product };
         } else {
             setOriginalName(null);
-            setFormData({ ...EMPTY_FORM });
+            initialData = { ...EMPTY_FORM };
         }
+        setFormData(initialData);
+        setInitialFormData(JSON.parse(JSON.stringify(initialData)));
         setShowModal(true);
     };
 
-    const handleClose = () => setShowModal(false);
+    const isFormDirty = () => {
+        if (!initialFormData) return false;
+        return JSON.stringify(formData) !== JSON.stringify(initialFormData);
+    };
+
+    const handleRequestClose = () => {
+        if (isFormDirty()) {
+            setShowUnsavedModal(true);
+        } else {
+            setShowModal(false);
+        }
+    };
+
+    const handleForceDiscard = () => {
+        setShowUnsavedModal(false);
+        setShowModal(false);
+    };
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
@@ -111,14 +147,53 @@ const ProductManagement = () => {
         } else if (type === 'checkbox') {
             setFormData({ ...formData, [name]: checked });
         } else {
-            setFormData({ ...formData, [name]: value });
+            let updated = { ...formData, [name]: value };
+
+            // Auto-calculate Dose (avg) from min_rate and max_rate
+            if (name === 'min_rate' || name === 'max_rate') {
+                const minVal = name === 'min_rate' ? (parseFloat(value) || 0) : (parseFloat(formData.min_rate) || 0);
+                const maxVal = name === 'max_rate' ? (parseFloat(value) || 0) : (parseFloat(formData.max_rate) || 0);
+
+                let avgDose = 0;
+                if (minVal > 0 && maxVal > 0) {
+                    avgDose = parseFloat(((minVal + maxVal) / 2).toFixed(2));
+                } else if (minVal > 0) {
+                    avgDose = minVal;
+                } else if (maxVal > 0) {
+                    avgDose = maxVal;
+                }
+                updated['Dose (avg)'] = avgDose;
+
+                // Also update Cost/Dose if price and size exist
+                const price = parseFloat(formData.Price) || 0;
+                const pkgSize = parseFloat(formData.package_size) || 0;
+                const contSize = parseFloat(formData['Container Size']) || 0;
+                const size = pkgSize > 0 ? pkgSize : contSize;
+                if (price > 0 && size > 0 && avgDose > 0) {
+                    updated['Cost/Dose'] = parseFloat(((price / size) * avgDose).toFixed(2));
+                }
+            }
+
+            // Auto-calculate Cost/Dose when Price, Container Size, package_size, or Dose (avg) changes
+            if (name === 'Price' || name === 'package_size' || name === 'Container Size' || name === 'Dose (avg)') {
+                const price = name === 'Price' ? (parseFloat(value) || 0) : (parseFloat(formData.Price) || 0);
+                const pkgSize = name === 'package_size' ? (parseFloat(value) || 0) : (parseFloat(formData.package_size) || 0);
+                const contSize = name === 'Container Size' ? (parseFloat(value) || 0) : (parseFloat(formData['Container Size']) || 0);
+                const size = pkgSize > 0 ? pkgSize : contSize;
+                const avgDose = name === 'Dose (avg)' ? (parseFloat(value) || 0) : (parseFloat(formData['Dose (avg)']) || 0);
+
+                if (price > 0 && size > 0 && avgDose > 0) {
+                    updated['Cost/Dose'] = parseFloat(((price / size) * avgDose).toFixed(2));
+                }
+            }
+
+            setFormData(updated);
         }
     };
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
+    const saveProduct = async () => {
         const method = originalName ? "PUT" : "POST";
-        const url = originalName ? `${API_BASE}/${originalName}` : API_BASE;
+        const url = originalName ? `${API_BASE}/${encodeURIComponent(originalName)}` : API_BASE;
 
         console.log("Submitting:", { method, url, formData });
 
@@ -131,15 +206,28 @@ const ProductManagement = () => {
             if (response.ok) {
                 alert("Product saved successfully!");
                 fetchProducts();
-                handleClose();
+                setShowModal(false);
+                return true;
             } else {
                 const errorData = await response.text();
                 alert("Error saving product: " + response.status + " " + errorData);
+                return false;
             }
         } catch (error) {
             console.error("Error saving product:", error);
             alert("Network error: " + error.message);
+            return false;
         }
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        await saveProduct();
+    };
+
+    const handleSaveAndClose = async () => {
+        setShowUnsavedModal(false);
+        await saveProduct();
     };
 
     const handleDelete = async (name) => {
@@ -239,7 +327,7 @@ const ProductManagement = () => {
                 </Table>
             </div>
 
-            <Modal show={showModal} onHide={handleClose} size="lg">
+            <Modal show={showModal} onHide={handleRequestClose} size="lg">
                 <Modal.Header closeButton>
                     <Modal.Title>{originalName ? "Edit Product" : "Add Product"}</Modal.Title>
                 </Modal.Header>
@@ -258,7 +346,28 @@ const ProductManagement = () => {
                             <Col md={6}>
                                 <Form.Group className="mb-3">
                                     <Form.Label>Primary Disease</Form.Label>
-                                    <Form.Control type="text" name="Primary Disease" value={formData['Primary Disease'] || ''} onChange={handleChange} />
+                                    <Form.Select 
+                                        name="Primary Disease" 
+                                        value={formData['Primary Disease'] || ''} 
+                                        onChange={handleChange}
+                                    >
+                                        <option value="">None</option>
+                                        <option value="powdery">Powdery Mildew</option>
+                                        <option value="downy">Downy Mildew</option>
+                                        <option value="black rot">Black Rot</option>
+                                        <option value="botrytis">Botrytis</option>
+                                        <option value="phomopsis">Phomopsis</option>
+                                        <option value="anthracnose">Anthracnose</option>
+                                        <option value="bitter rot">Bitter Rot</option>
+                                        <option value="sour rot">Sour Rot</option>
+                                        <option value="japanese beatles">Japanese Beetles</option>
+                                        <option value="berry moth">Grape Berry Moth</option>
+                                        {formData['Primary Disease'] && ![
+                                            "", "powdery", "downy", "black rot", "botrytis", "phomopsis", "anthracnose", "bitter rot", "sour rot", "japanese beatles", "berry moth"
+                                        ].includes(formData['Primary Disease']) && (
+                                            <option value={formData['Primary Disease']}>{formData['Primary Disease']}</option>
+                                        )}
+                                    </Form.Select>
                                 </Form.Group>
                             </Col>
                         </Row>
@@ -278,19 +387,94 @@ const ProductManagement = () => {
                             <Col md={3}>
                                 <Form.Group className="mb-3">
                                     <Form.Label>Signal Word</Form.Label>
-                                    <Form.Control type="text" name="Singal Word" value={formData['Singal Word'] || ''} onChange={handleChange} placeholder="caution, warning" />
+                                    <Form.Select name="Singal Word" value={formData['Singal Word'] || ''} onChange={handleChange}>
+                                        <option value="">None</option>
+                                        <option value="caution">Caution</option>
+                                        <option value="warning">Warning</option>
+                                        <option value="danger">Danger</option>
+                                    </Form.Select>
                                 </Form.Group>
                             </Col>
                         </Row>
 
                         <Row>
-                            <Col md={3}>
+                            <Col md={6}>
                                 <Form.Group className="mb-3">
-                                    <Form.Label>FRAC</Form.Label>
-                                    <Form.Control type="text" name="FRAC" value={formData.FRAC || ''} onChange={handleChange} />
+                                    <Form.Label>FRAC Code(s) <small className="text-muted">(select multiple)</small></Form.Label>
+                                    <div style={{ maxHeight: "120px", overflowY: "auto", border: "1px solid #ced4da", borderRadius: "0.375rem", padding: "0.5rem" }} className="mb-2 bg-white">
+                                        {fracCodes.filter(f => f.code).map((item) => {
+                                            const selectedFracList = formData.FRAC ? formData.FRAC.split(/[\+,]/).map(f => f.trim()).filter(Boolean) : [];
+                                            const isChecked = selectedFracList.some(x => x.toLowerCase() === item.code.toLowerCase());
+                                            return (
+                                                <Form.Check 
+                                                    key={item.code}
+                                                    type="checkbox"
+                                                    id={`frac-check-${item.code}`}
+                                                    label={item.code}
+                                                    checked={isChecked}
+                                                    onChange={(e) => {
+                                                        let newList;
+                                                        if (e.target.checked) {
+                                                            newList = [...selectedFracList.filter(x => x.toLowerCase() !== item.code.toLowerCase()), item.code];
+                                                        } else {
+                                                            newList = selectedFracList.filter(x => x.toLowerCase() !== item.code.toLowerCase());
+                                                        }
+                                                        setFormData({ ...formData, FRAC: newList.filter(Boolean).join(" + ") });
+                                                    }}
+                                                />
+                                            );
+                                        })}
+                                    </div>
+                                    <div className="d-flex align-items-center">
+                                        <Form.Control 
+                                            type="text" 
+                                            placeholder="New FRAC code..." 
+                                            value={newFracCode}
+                                            onChange={(e) => setNewFracCode(e.target.value)}
+                                            className="me-2 py-1 form-control-sm"
+                                            style={{ maxWidth: "150px" }}
+                                        />
+                                        <Button 
+                                            variant="outline-secondary" 
+                                            size="sm"
+                                            onClick={async () => {
+                                                const codeToAdd = newFracCode.trim();
+                                                if (!codeToAdd) return;
+                                                const selectedFracList = formData.FRAC ? formData.FRAC.split(/[\+,]/).map(f => f.trim()).filter(Boolean) : [];
+                                                if (fracCodes.some(f => f.code.toUpperCase() === codeToAdd.toUpperCase())) {
+                                                    const actualCode = fracCodes.find(f => f.code.toUpperCase() === codeToAdd.toUpperCase()).code;
+                                                    if (!selectedFracList.some(x => x.toLowerCase() === actualCode.toLowerCase())) {
+                                                        setFormData({ ...formData, FRAC: [...selectedFracList, actualCode].filter(Boolean).join(" + ") });
+                                                    }
+                                                    setNewFracCode("");
+                                                    return;
+                                                }
+                                                try {
+                                                    const url = API_BASE.replace('/products', '/frac_codes');
+                                                    const resp = await fetch(url, {
+                                                        method: 'POST',
+                                                        headers: { 'Content-Type': 'application/json' },
+                                                        body: JSON.stringify({ code: codeToAdd })
+                                                    });
+                                                    if (resp.ok) {
+                                                        await fetchFracCodes();
+                                                        setFormData({ ...formData, FRAC: [...selectedFracList, codeToAdd].filter(Boolean).join(" + ") });
+                                                        setNewFracCode("");
+                                                    } else {
+                                                        const err = await resp.text();
+                                                        alert("Error adding code: " + err);
+                                                    }
+                                                } catch (err) {
+                                                    console.error(err);
+                                                }
+                                            }}
+                                        >
+                                            Add &amp; Select
+                                        </Button>
+                                    </div>
                                 </Form.Group>
                             </Col>
-                            <Col md={3}>
+                            <Col md={2}>
                                 <Form.Group className="mb-3">
                                     <Form.Label>OMRI</Form.Label>
                                     <Form.Select name="omri" value={formData.omri ?? 0} onChange={handleChange}>
@@ -299,13 +483,13 @@ const ProductManagement = () => {
                                     </Form.Select>
                                 </Form.Group>
                             </Col>
-                            <Col md={3}>
+                            <Col md={2}>
                                 <Form.Group className="mb-3">
                                     <Form.Label>PHI (days)</Form.Label>
                                     <Form.Control type="number" name="phi" value={formData.phi ?? 0} onChange={handleChange} />
                                 </Form.Group>
                             </Col>
-                            <Col md={3}>
+                            <Col md={2}>
                                 <Form.Group className="mb-3">
                                     <Form.Label>REI (hours)</Form.Label>
                                     <Form.Control type="number" name="rei" value={formData.rei ?? 0} onChange={handleChange} />
@@ -384,18 +568,24 @@ const ProductManagement = () => {
 
                         {/* ── Application Rates ── */}
                         <hr />
-                        <h5 className="mb-2">Application Rates</h5>
+                        <h5 className="mb-2">Application Rates &amp; Annual Limits</h5>
                         <Row>
-                            <Col md={6}>
+                            <Col md={4}>
                                 <Form.Group className="mb-3">
-                                    <Form.Label>Minimum Rate</Form.Label>
+                                    <Form.Label>Minimum Rate ({formData.units || 'unit'}/Ac)</Form.Label>
                                     <Form.Control type="number" step="0.1" name="min_rate" value={formData.min_rate ?? 0} onChange={handleChange} />
                                 </Form.Group>
                             </Col>
-                            <Col md={6}>
+                            <Col md={4}>
                                 <Form.Group className="mb-3">
-                                    <Form.Label>Maximum Rate</Form.Label>
+                                    <Form.Label>Maximum Rate ({formData.units || 'unit'}/Ac)</Form.Label>
                                     <Form.Control type="number" step="0.1" name="max_rate" value={formData.max_rate ?? 0} onChange={handleChange} />
+                                </Form.Group>
+                            </Col>
+                            <Col md={4}>
+                                <Form.Group className="mb-3">
+                                    <Form.Label>Max Annual Rate ({formData.units || 'unit'}/Ac/Year)</Form.Label>
+                                    <Form.Control type="number" step="0.1" name="max_annual_rate" value={formData.max_annual_rate ?? 0} onChange={handleChange} placeholder="Legal max/acre/year" />
                                 </Form.Group>
                             </Col>
                         </Row>
@@ -470,9 +660,41 @@ const ProductManagement = () => {
                             ))}
                         </Row>
 
-                        <Button variant="primary" type="submit">Save Changes</Button>
+                        <div className="d-flex justify-content-between align-items-center mt-4 pt-3 border-top">
+                            <Button variant="secondary" type="button" onClick={handleRequestClose}>
+                                Cancel
+                            </Button>
+                            <Button variant="primary" type="submit">
+                                Save Changes
+                            </Button>
+                        </div>
                     </Form>
                 </Modal.Body>
+            </Modal>
+
+            {/* ── Unsaved Changes Confirmation Modal ── */}
+            <Modal show={showUnsavedModal} onHide={() => setShowUnsavedModal(false)} centered>
+                <Modal.Header closeButton>
+                    <Modal.Title>Unsaved Changes</Modal.Title>
+                </Modal.Header>
+                <Modal.Body>
+                    <p className="m-0">
+                        You have unsaved changes for <strong>{formData.Product || 'this product'}</strong>. Would you like to save your changes before closing?
+                    </p>
+                </Modal.Body>
+                <Modal.Footer className="d-flex justify-content-between">
+                    <Button variant="outline-danger" onClick={handleForceDiscard}>
+                        Discard Changes
+                    </Button>
+                    <div>
+                        <Button variant="secondary" className="me-2" onClick={() => setShowUnsavedModal(false)}>
+                            Keep Editing
+                        </Button>
+                        <Button variant="primary" onClick={handleSaveAndClose}>
+                            Save Changes
+                        </Button>
+                    </div>
+                </Modal.Footer>
             </Modal>
 
             {/* ── Chemical Replacement & Deletion Modal ── */}
@@ -482,7 +704,7 @@ const ProductManagement = () => {
                 </Modal.Header>
                 <Modal.Body>
                     <p>
-                        The product <strong>{productToDelete}</strong> is currently referenced in <strong>{usageCount}</strong> spray history entries.
+                        The product <strong>{productToDelete}</strong> is currently referenced in <strong>{usageCount}</strong> pesticide application entries.
                     </p>
                     <p>
                         Please choose a replacement product to update those historical entries with:

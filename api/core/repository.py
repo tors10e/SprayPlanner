@@ -27,8 +27,19 @@ class ProductRepository:
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        # Load all products from the 'products' table ordered alphabetically
-        query = "SELECT * FROM products ORDER BY LOWER(\"Product\") ASC"
+        # Load all products, aggregating FRAC codes from product_frac_codes
+        query = """
+        SELECT 
+            p.*,
+            COALESCE(
+                (SELECT STRING_AGG(frac_code, ' + ' ORDER BY frac_code) 
+                 FROM product_frac_codes 
+                 WHERE product_id = p.id),
+                ''
+            ) as "FRAC"
+        FROM products p
+        ORDER BY LOWER(p."Product") ASC
+        """
         cursor.execute(query)
         columns = [desc[0] for desc in cursor.description]
         df = pd.DataFrame(cursor.fetchall(), columns=columns)
@@ -72,6 +83,7 @@ class ProductRepository:
                 ppe_protective_eyewear=bool(row.get("ppe_protective_eyewear")) if pd.notna(row.get("ppe_protective_eyewear")) else False,
                 min_rate=float(row.get("min_rate")) if pd.notna(row.get("min_rate")) else 0.0,
                 max_rate=float(row.get("max_rate")) if pd.notna(row.get("max_rate")) else 0.0,
+                max_annual_rate=float(row.get("max_annual_rate")) if pd.notna(row.get("max_annual_rate")) else 0.0,
                 epa_no=str(row.get("EPA No")) if pd.notna(row.get("EPA No")) else "",
                 active_ingredient=str(row.get("Active Ingredient")) if pd.notna(row.get("Active Ingredient")) else "",
                 signal_word=str(row.get("Singal Word")) if pd.notna(row.get("Singal Word")) else ""
@@ -94,13 +106,26 @@ class ProductRepository:
                 conn.close()
                 raise ValueError(f"Product '{p_name}' already exists (case-insensitive duplicate).")
 
+        frac_val = product_data.pop("FRAC", None)
         remapped_data = {self._clean_key(k): v for k, v in product_data.items()}
         columns = [f"\"{k}\"" for k in product_data.keys()]
         placeholders = ", ".join([f"%({self._clean_key(k)})s" for k in product_data.keys()])
             
-        sql = f"INSERT INTO products ({', '.join(columns)}) VALUES ({placeholders})"
-        
+        sql = f"INSERT INTO products ({', '.join(columns)}) VALUES ({placeholders}) RETURNING id"
         cursor.execute(sql, remapped_data)
+        product_id = cursor.fetchone()[0]
+        
+        # Save FRAC mapping details
+        if frac_val:
+            import re
+            parts = re.split(r'[\+\/,;]', str(frac_val))
+            for part in parts:
+                p_clean = part.strip()
+                if p_clean and p_clean.lower() not in ["nan", "none", "null", ""]:
+                    if p_clean.lower().startswith('m') and len(p_clean) > 1:
+                        p_clean = 'M' + p_clean[1:]
+                    cursor.execute('INSERT INTO product_frac_codes (product_id, frac_code) VALUES (%s, %s) ON CONFLICT (product_id, frac_code) DO NOTHING;', (product_id, p_clean))
+                    
         conn.commit()
         cursor.close()
         conn.close()
@@ -118,6 +143,15 @@ class ProductRepository:
                 conn.close()
                 raise ValueError(f"Product '{new_name}' already exists (case-insensitive duplicate).")
 
+        cursor.execute('SELECT id FROM products WHERE "Product" = %s', (name,))
+        row = cursor.fetchone()
+        if not row:
+            cursor.close()
+            conn.close()
+            raise ValueError(f"Product '{name}' not found.")
+        product_id = row[0]
+
+        frac_val = product_data.pop("FRAC", None)
         # Use double quotes for column names to handle spaces and preserve casing
         set_clause = ", ".join([f"\"{col}\" = %({self._clean_key(col)})s" for col in product_data.keys()])
         sql = f"UPDATE products SET {set_clause} WHERE \"Product\" = %(old_name)s"
@@ -126,6 +160,19 @@ class ProductRepository:
         remapped_data['old_name'] = name
         
         cursor.execute(sql, remapped_data)
+        
+        # Update FRAC mapping details
+        cursor.execute('DELETE FROM product_frac_codes WHERE product_id = %s', (product_id,))
+        if frac_val:
+            import re
+            parts = re.split(r'[\+\/,;]', str(frac_val))
+            for part in parts:
+                p_clean = part.strip()
+                if p_clean and p_clean.lower() not in ["nan", "none", "null", ""]:
+                    if p_clean.lower().startswith('m') and len(p_clean) > 1:
+                        p_clean = 'M' + p_clean[1:]
+                    cursor.execute('INSERT INTO product_frac_codes (product_id, frac_code) VALUES (%s, %s) ON CONFLICT (product_id, frac_code) DO NOTHING;', (product_id, p_clean))
+                    
         conn.commit()
         cursor.close()
         conn.close()
