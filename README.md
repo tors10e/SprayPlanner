@@ -167,3 +167,9 @@ docker buildx build --platform linux/amd64 \
   -t ghcr.io/tors10e/sprayplanner-api:latest \
   -f api/Dockerfile api \
   --push
+
+  ## Deployment
+    export CR_PAT=YOUR_TOKEN
+    echo $CR_PAT | docker login ghcr.io -u USERNAME --password-stdin
+    docker compose pull
+    docker compose up -d
