@@ -14,9 +14,6 @@ services:
 
   backend:
     image: ghcr.io/tors10e/sprayplanner-api:latest
-    build:
-      context: ./api
-      dockerfile: Dockerfile
     container_name: sprayplanner-api
     restart: always
     environment:
@@ -26,7 +23,7 @@ services:
       - DB_USER=postgres
       - DB_PASSWORD=Black1ce!
       - EXCEL_FILE_PATH=spray_product_information.csv
-      - APP_ENV=${APP_ENV:-production}
+      - APP_ENV=production
     depends_on:
       - db
     ports:
@@ -47,9 +44,6 @@ services:
 
   frontend:
     image: ghcr.io/tors10e/sprayplanner-frontend:latest
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
     container_name: sprayplanner-client
     restart: always
     ports:

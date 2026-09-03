@@ -150,3 +150,20 @@ All configurations are managed inside the `.env` file. You can configure distinc
 | `*_DB_HOST` | All | `db` | Database host container name inside Docker |
 | `*_DB_USER` | All | `postgres` | Database login username |
 | `*_DB_PASSWORD`| All | `Black1ce!` | Database login password |
+
+
+## Build and deploy docker containers to container registry
+docker buildx build --platform linux/amd64 \
+  -t ghcr.io/tors10e/sprayplanner-frontend:latest \
+  -f frontend/Dockerfile frontend \
+  --push
+
+docker buildx build --platform linux/amd64 \
+  -t ghcr.io/tors10e/sprayplanner-api:latest \
+  -f api/Dockerfile api \
+  --push
+
+docker buildx build --platform linux/amd64 \
+  -t ghcr.io/tors10e/sprayplanner-api:latest \
+  -f api/Dockerfile api \
+  --push
