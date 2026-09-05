@@ -13,6 +13,7 @@ function TerraNavbar(props) {
               <Nav.Link href="/history">Pesticide Application</Nav.Link>
               <Nav.Link href="/planner">Spray Planner</Nav.Link>
               <Nav.Link href="/reports">Reports</Nav.Link>
+              <Nav.Link href="/farm">Farm</Nav.Link>
               <Nav.Link href="/vineyard-blocks">Vineyard Blocks</Nav.Link>
               <Nav.Link href="/admin">Admin</Nav.Link>
               <Nav.Link href="https://www.wunderground.com/dashboard/pws/KGALAKEM20" target="_blank">Current Weather</Nav.Link>            </Nav>

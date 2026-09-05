@@ -230,8 +230,23 @@ def migrate_csv_to_postgres():
                                             cursor.execute('INSERT INTO product_frac_codes (product_id, frac_code) VALUES (%s, %s) ON CONFLICT (product_id, frac_code) DO NOTHING;', (p_id, p_clean))
                             cursor.execute('ALTER TABLE products DROP COLUMN "FRAC";')
                         
+                        # Create and seed 'farms' table
+                        cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS farms (
+                            id SERIAL PRIMARY KEY,
+                            name VARCHAR(255) NOT NULL DEFAULT 'Terra Incognita Vineyard',
+                            acres NUMERIC(10, 2) DEFAULT 0,
+                            farm_area GEOMETRY(Polygon, 4326),
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        );
+                        """)
+                        cursor.execute("SELECT COUNT(*) FROM farms;")
+                        if cursor.fetchone()[0] == 0:
+                            cursor.execute("INSERT INTO farms (name, acres) VALUES (%s, %s);", ("Terra Incognita Vineyard", 0.0))
+
                         conn.commit()
-                        print("PostgreSQL schema migration completed: block_area, system_settings, frac_codes, products.id, and product_frac_codes verified/added.")
+                        print("PostgreSQL schema migration completed: block_area, system_settings, frac_codes, products.id, product_frac_codes, and farms verified/added.")
                     except Exception as migration_err:
                         print("Error during database alteration migration:", migration_err)
                         conn.rollback()
@@ -507,6 +522,21 @@ def migrate_csv_to_postgres():
     );
     """
     cursor.execute(create_vineyard_rows_table)
+
+    create_farms_table = """
+    CREATE TABLE IF NOT EXISTS farms (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL DEFAULT 'Terra Incognita Vineyard',
+        acres NUMERIC(10, 2) DEFAULT 0,
+        farm_area GEOMETRY(Polygon, 4326),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """
+    cursor.execute(create_farms_table)
+    cursor.execute("SELECT COUNT(*) FROM farms;")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute("INSERT INTO farms (name, acres) VALUES (%s, %s);", ("Terra Incognita Vineyard", 0.0))
 
     # Helper to convert coordinates to WKT format
     def coords_to_wkt_polygon(coords):

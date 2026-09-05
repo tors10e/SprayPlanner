@@ -11,6 +11,7 @@ import SprayHistory from './database/SprayHistory';
 import SprayPlanner from './database/SprayPlanner';
 import SprayReports from './database/SprayReports';
 import VineyardBlocks from './database/VineyardBlocks';
+import FarmManagement from './database/FarmManagement';
 import AdminSettings from './database/AdminSettings';
 import Container from 'react-bootstrap/Container';
 
@@ -24,6 +25,7 @@ function App() {
             <Route path='/history' element={<SprayHistory />} />
             <Route path='/planner' element={<SprayPlanner />} />
             <Route path='/reports' element={<SprayReports />} />
+            <Route path='/farm' element={<FarmManagement />} />
             <Route path='/vineyard-blocks' element={<VineyardBlocks />} />
             <Route path='/admin' element={<AdminSettings />} />
             {/* Redirect any other unknown routes to home */}

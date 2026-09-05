@@ -14,9 +14,9 @@ from services.mix_builder import MixBuilder
 from services.planner import Planner
 from datetime import datetime, timedelta
 from core.weather import get_block_weather_info
-import os
 import io
 import pandas as pd
+from core.gis_importer import import_boundary_file, calculate_geodesic_acres
 
 app = Flask(__name__)
 CORS(app)
@@ -849,6 +849,154 @@ def update_vineyard_block(block_code):
         return jsonify({'status': 'success'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# ─────────────────────────────────────────────────────────────
+# Farm Management Endpoints
+# ─────────────────────────────────────────────────────────────
+@app.route('/api/farm', methods=['GET'])
+def get_farm():
+    try:
+        conn = repo._get_connection()
+        cursor = conn.cursor()
+        
+        # Ensure farms table exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS farms (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(255) NOT NULL DEFAULT 'Terra Incognita Vineyard',
+                acres NUMERIC(10, 2) DEFAULT 0,
+                farm_area GEOMETRY(Polygon, 4326),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.commit()
+
+        cursor.execute('''
+            SELECT 
+                id, name, acres,
+                ST_AsGeoJSON(farm_area) as farm_area,
+                ST_Y(ST_Centroid(farm_area)) as centroid_lat,
+                ST_X(ST_Centroid(farm_area)) as centroid_lng
+            FROM farms 
+            ORDER BY id ASC 
+            LIMIT 1
+        ''')
+        row = cursor.fetchone()
+        
+        if not row:
+            cursor.execute("INSERT INTO farms (name, acres) VALUES (%s, %s) RETURNING id, name, acres;", ("Terra Incognita Vineyard", 0.0))
+            new_f = cursor.fetchone()
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "id": new_f[0],
+                "name": new_f[1],
+                "acres": float(new_f[2] or 0),
+                "farm_area": [],
+                "centroid": None
+            })
+            
+        farm_id = row[0]
+        name = row[1]
+        acres = float(row[2] or 0)
+        farm_area_coords = wkt_or_geojson_to_coords(row[3])
+        centroid_lat = row[4]
+        centroid_lng = row[5]
+        centroid = [centroid_lat, centroid_lng] if centroid_lat is not None and centroid_lng is not None else None
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "id": farm_id,
+            "name": name,
+            "acres": acres,
+            "farm_area": farm_area_coords,
+            "centroid": centroid
+        })
+    except Exception as e:
+        print(f"Error fetching farm: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/farm', methods=['PUT'])
+def update_farm():
+    try:
+        data = request.json
+        name = (data.get("name") or "Terra Incognita Vineyard").strip()
+        farm_area = data.get("farm_area")
+        wkt = coords_to_wkt_polygon(farm_area)
+        
+        if farm_area and len(farm_area) >= 3:
+            acres = calculate_geodesic_acres(farm_area)
+        else:
+            acres = float(data.get("acres") or 0)
+            
+        conn = repo._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT id FROM farms ORDER BY id ASC LIMIT 1")
+        row = cursor.fetchone()
+        
+        if row:
+            farm_id = row[0]
+            if wkt:
+                cursor.execute("""
+                    UPDATE farms 
+                    SET name = %s, acres = %s, farm_area = ST_GeomFromText(%s, 4326), updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s
+                """, (name, acres, wkt, farm_id))
+            else:
+                cursor.execute("""
+                    UPDATE farms 
+                    SET name = %s, acres = %s, farm_area = NULL, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s
+                """, (name, acres, farm_id))
+        else:
+            if wkt:
+                cursor.execute("""
+                    INSERT INTO farms (name, acres, farm_area)
+                    VALUES (%s, %s, ST_GeomFromText(%s, 4326))
+                """, (name, acres, wkt))
+            else:
+                cursor.execute("""
+                    INSERT INTO farms (name, acres, farm_area)
+                    VALUES (%s, %s, NULL)
+                """, (name, acres))
+                
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Farm updated successfully',
+            'farm': {
+                'name': name,
+                'acres': acres,
+                'farm_area': farm_area or []
+            }
+        })
+    except Exception as e:
+        print(f"Error updating farm: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/farm/upload-boundary', methods=['POST'])
+def upload_farm_boundary():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'status': 'error', 'message': 'No file uploaded'}), 400
+            
+        file = request.files['file']
+        if not file.filename:
+            return jsonify({'status': 'error', 'message': 'No selected file'}), 400
+            
+        result = import_boundary_file(file, file.filename)
+        return jsonify(result)
+    except Exception as e:
+        print(f"Error importing boundary file: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 400
 
 # Helper to parse dates
 def parse_date_api(date_str):

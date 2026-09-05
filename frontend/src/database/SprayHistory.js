@@ -84,6 +84,8 @@ const SprayHistory = () => {
     const [showModal, setShowModal] = useState(false);
     const [currentId, setCurrentId] = useState(null); // stores composite block event name or null
     const [formData, setFormData] = useState({ ...EMPTY_HISTORY_FORM });
+    const [initialFormData, setInitialFormData] = useState(null);
+    const [showUnsavedModal, setShowUnsavedModal] = useState(false);
     const [availableBlocks, setAvailableBlocks] = useState([]);
     
     // File upload state
@@ -130,10 +132,11 @@ const SprayHistory = () => {
     };
 
     const handleShow = (group = null, event = null) => {
+        let initialData;
         if (group && event) {
             // Edit existing block application
             setCurrentId(event.blockApplicationId);
-            setFormData({
+            initialData = {
                 spray_number: group.sprayNumber || "",
                 block: event.block || "",
                 date: event.date || "",
@@ -142,7 +145,7 @@ const SprayHistory = () => {
                 event_id: group.eventId,
                 block_application_id: event.blockApplicationId,
                 rows: event.items.map(item => ({ ...item }))
-            });
+            };
         } else {
             // Add new spray application
             const nextSprayNum = history.reduce((max, item) => (item["Spray #"] && item["Spray #"] > max ? item["Spray #"] : max), 0) + 1;
@@ -150,19 +153,21 @@ const SprayHistory = () => {
             const formattedDate = (today.getMonth() + 1) + '/' + today.getDate() + '/' + String(today.getFullYear()).slice(-2);
             
             setCurrentId(null);
-            setFormData({
+            initialData = {
                 ...EMPTY_HISTORY_FORM,
                 spray_number: nextSprayNum,
                 date: formattedDate
-            });
+            };
         }
+        setFormData(initialData);
+        setInitialFormData(JSON.parse(JSON.stringify(initialData)));
         setShowModal(true);
     };
 
     const handleShowSingle = (event) => {
         // Edit single unscheduled block application
         setCurrentId(event.blockApplicationId);
-        setFormData({
+        const initialData = {
             spray_number: "",
             block: event.block || "",
             date: event.date || "",
@@ -171,14 +176,16 @@ const SprayHistory = () => {
             event_id: null,
             block_application_id: event.blockApplicationId,
             rows: event.items.map(item => ({ ...item }))
-        });
+        };
+        setFormData(initialData);
+        setInitialFormData(JSON.parse(JSON.stringify(initialData)));
         setShowModal(true);
     };
 
     const handleClone = (group, event) => {
         // Open form with duplicated chemical rows, but empty block and time fields so user can clone easily
         setCurrentId(null);
-        setFormData({
+        const initialData = {
             spray_number: group ? (group.sprayNumber || "") : "",
             block: "",
             date: event.date || "",
@@ -193,11 +200,33 @@ const SprayHistory = () => {
                 delete rowCopy.event_id;
                 return rowCopy;
             })
-        });
+        };
+        setFormData(initialData);
+        setInitialFormData(JSON.parse(JSON.stringify(initialData)));
         setShowModal(true);
     };
 
-    const handleClose = () => setShowModal(false);
+    const isFormDirty = () => {
+        if (!initialFormData) return false;
+        return JSON.stringify(formData) !== JSON.stringify(initialFormData);
+    };
+
+    const handleClose = () => {
+        setShowModal(false);
+    };
+
+    const handleRequestClose = () => {
+        if (isFormDirty()) {
+            setShowUnsavedModal(true);
+        } else {
+            handleClose();
+        }
+    };
+
+    const handleForceDiscard = () => {
+        setShowUnsavedModal(false);
+        handleClose();
+    };
 
     const handleHeaderChange = (e) => {
         const { name, value } = e.target;
@@ -278,15 +307,13 @@ const SprayHistory = () => {
         setFormData({ ...formData, rows: updatedRows });
     };
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        
+    const saveSprayRun = async () => {
         // Prevent duplicate chemicals in the same block spray event
         const pesticides = formData.rows.map(r => r.Pesticide).filter(Boolean);
         const hasDuplicates = pesticides.length !== new Set(pesticides).size;
         if (hasDuplicates) {
             alert("Duplicate chemicals found in the mix. Please remove the duplicate rows before saving.");
-            return;
+            return false;
         }
         
         const payload = {
@@ -317,14 +344,27 @@ const SprayHistory = () => {
                 alert("Block spray application saved successfully!");
                 fetchHistory();
                 handleClose();
+                return true;
             } else {
                 const errorData = await response.text();
                 alert("Error saving block application: " + response.status + " " + errorData);
+                return false;
             }
         } catch (error) {
             console.error("Error saving block application:", error);
             alert("Network error: " + error.message);
+            return false;
         }
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        await saveSprayRun();
+    };
+
+    const handleSaveAndClose = async () => {
+        setShowUnsavedModal(false);
+        await saveSprayRun();
     };
 
     const handleDeleteEvent = async (blockApplicationId, sprayNumber, block, date) => {
@@ -795,7 +835,7 @@ const SprayHistory = () => {
             </div>
 
             {/* ── CRUD Modal ── */}
-            <Modal show={showModal} onHide={handleClose} size="xl" backdrop="static">
+            <Modal show={showModal} onHide={handleRequestClose} size="xl" backdrop="static">
                 <Modal.Header closeButton>
                     <Modal.Title>{currentId ? "Edit Block Spray Run" : "Add Block Spray Run"}</Modal.Title>
                 </Modal.Header>
@@ -908,11 +948,36 @@ const SprayHistory = () => {
                         ))}
 
                         <div className="text-end mt-4">
-                            <Button variant="secondary" className="me-2" onClick={handleClose}>Cancel</Button>
+                            <Button variant="secondary" className="me-2" onClick={handleRequestClose}>Cancel</Button>
                             <Button variant="primary" type="submit">Save Block Application</Button>
                         </div>
                     </Form>
                 </Modal.Body>
+            </Modal>
+
+            {/* ── Unsaved Changes Confirmation Modal ── */}
+            <Modal show={showUnsavedModal} onHide={() => setShowUnsavedModal(false)} centered>
+                <Modal.Header closeButton>
+                    <Modal.Title>Unsaved Changes</Modal.Title>
+                </Modal.Header>
+                <Modal.Body>
+                    <p className="m-0">
+                        You have unsaved changes for this block spray run. Would you like to save your changes before closing?
+                    </p>
+                </Modal.Body>
+                <Modal.Footer className="d-flex justify-content-between">
+                    <Button variant="outline-danger" onClick={handleForceDiscard}>
+                        Discard Changes
+                    </Button>
+                    <div>
+                        <Button variant="secondary" className="me-2" onClick={() => setShowUnsavedModal(false)}>
+                            Keep Editing
+                        </Button>
+                        <Button variant="primary" onClick={handleSaveAndClose}>
+                            Save Changes
+                        </Button>
+                    </div>
+                </Modal.Footer>
             </Modal>
 
             <Row><Footer /></Row>

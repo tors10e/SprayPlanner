@@ -29,7 +29,10 @@ const VineyardBlocks = () => {
     const [showModal, setShowModal] = useState(false);
     const [isEdit, setIsEdit] = useState(false);
     const [formData, setFormData] = useState({ ...EMPTY_BLOCK });
+    const [initialFormData, setInitialFormData] = useState(null);
+    const [showUnsavedModal, setShowUnsavedModal] = useState(false);
     const [expandedBlocks, setExpandedBlocks] = useState({});
+    const [farmData, setFarmData] = useState(null);
     
     // Quick row generator states
     const [genNumRows, setGenNumRows] = useState(10);
@@ -56,7 +59,20 @@ const VineyardBlocks = () => {
 
     useEffect(() => {
         fetchBlocks();
+        fetchFarm();
     }, []);
+
+    const fetchFarm = async () => {
+        try {
+            const resp = await fetch(API_BASE.replace('/blocks', '/farm'));
+            if (resp.ok) {
+                const data = await resp.json();
+                setFarmData(data);
+            }
+        } catch (e) {
+            console.error("Error fetching farm boundary:", e);
+        }
+    };
 
     // Overview Map Initialization
     useEffect(() => {
@@ -111,7 +127,7 @@ const VineyardBlocks = () => {
                 overviewLayersGroupRef.current = null;
             }
         };
-    }, [loading, blocks]);
+    }, [loading, blocks, farmData]);
 
     const drawOverviewPolygons = () => {
         const map = overviewMapRef.current;
@@ -123,6 +139,17 @@ const VineyardBlocks = () => {
 
         const group = L.layerGroup().addTo(map);
         overviewLayersGroupRef.current = group;
+
+        // Draw Farm boundary outline if available (outline only, empty interior)
+        if (farmData && farmData.farm_area && farmData.farm_area.length >= 3) {
+            L.polygon(farmData.farm_area, {
+                color: '#ffc107',
+                weight: 4,
+                dashArray: '8, 6',
+                fill: false,
+                fillOpacity: 0.0
+            }).addTo(group).bindTooltip(`Property: ${farmData.name || 'Farm'} (${farmData.acres || 0} ac)`, { sticky: true });
+        }
 
         const colors = ['#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8', '#6610f2', '#e83e8c'];
         
@@ -152,8 +179,12 @@ const VineyardBlocks = () => {
         });
 
         const blocksWithPoly = blocks.filter(b => b.block_area && b.block_area.length > 0);
-        if (blocksWithPoly.length > 0) {
-            const bounds = L.latLngBounds(blocksWithPoly.flatMap(b => b.block_area));
+        const allPoints = [
+            ...blocksWithPoly.flatMap(b => b.block_area),
+            ...(farmData && farmData.farm_area ? farmData.farm_area : [])
+        ];
+        if (allPoints.length > 0) {
+            const bounds = L.latLngBounds(allPoints);
             map.fitBounds(bounds, { padding: [30, 30] });
         }
     };
@@ -336,20 +367,28 @@ const VineyardBlocks = () => {
 
     const handleShow = (block = null) => {
         setErrorMsg('');
+        let initialData;
         if (block) {
             setIsEdit(true);
-            setFormData({ 
+            initialData = { 
                 ...block, 
-                rows: [...block.rows], 
+                rows: block.rows ? block.rows.map(r => ({ ...r })) : [], 
                 block_area: block.block_area ? [...block.block_area] : [] 
-            });
+            };
         } else {
             setIsEdit(false);
-            setFormData({ ...EMPTY_BLOCK, rows: [], block_area: [] });
+            initialData = { ...EMPTY_BLOCK, rows: [], block_area: [] };
         }
+        setFormData(initialData);
+        setInitialFormData(JSON.parse(JSON.stringify(initialData)));
         setGenNumRows(10);
         setGenRowLength(300);
         setShowModal(true);
+    };
+
+    const isFormDirty = () => {
+        if (!initialFormData) return false;
+        return JSON.stringify(formData) !== JSON.stringify(initialFormData);
     };
 
     const handleClose = () => {
@@ -360,6 +399,19 @@ const VineyardBlocks = () => {
             markersGroupRef.current = null;
         }
         setShowModal(false);
+    };
+
+    const handleRequestClose = () => {
+        if (isFormDirty()) {
+            setShowUnsavedModal(true);
+        } else {
+            handleClose();
+        }
+    };
+
+    const handleForceDiscard = () => {
+        setShowUnsavedModal(false);
+        handleClose();
     };
 
     const handleChange = (e) => {
@@ -424,13 +476,12 @@ const VineyardBlocks = () => {
         return { totalRows, totalVines };
     };
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
+    const saveBlock = async () => {
         setErrorMsg('');
 
         if (!formData.block_code.trim()) {
             setErrorMsg('Block code is required');
-            return;
+            return false;
         }
 
         // Validate unique row numbers
@@ -438,7 +489,7 @@ const VineyardBlocks = () => {
         const uniqueRowNums = new Set(rowNums);
         if (rowNums.length !== uniqueRowNums.size) {
             setErrorMsg('Duplicate row numbers are not allowed');
-            return;
+            return false;
         }
 
         const url = isEdit ? `${API_BASE}/${formData.block_code}` : API_BASE;
@@ -453,15 +504,28 @@ const VineyardBlocks = () => {
 
             const result = await response.json();
             if (response.ok) {
-                setShowModal(false);
+                handleClose();
                 fetchBlocks();
+                return true;
             } else {
                 setErrorMsg(result.message || 'An error occurred while saving the block');
+                return false;
             }
         } catch (error) {
             console.error("Error saving vineyard block:", error);
             setErrorMsg('Network error saving block');
+            return false;
         }
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        await saveBlock();
+    };
+
+    const handleSaveAndClose = async () => {
+        setShowUnsavedModal(false);
+        await saveBlock();
     };
 
     const handleDelete = async (blockCode) => {
@@ -637,7 +701,7 @@ const VineyardBlocks = () => {
             </Card>
 
             {/* Modal for adding/editing block */}
-            <Modal show={showModal} onHide={handleClose} size="lg" backdrop="static" onEntered={handleModalEntered}>
+            <Modal show={showModal} onHide={handleRequestClose} size="lg" backdrop="static" onEntered={handleModalEntered}>
                 <Form onSubmit={handleSubmit}>
                     <Modal.Header closeButton className="bg-dark text-white">
                         <Modal.Title>{isEdit ? 'Edit Vineyard Block' : 'Add Vineyard Block'}</Modal.Title>
@@ -872,7 +936,7 @@ const VineyardBlocks = () => {
                         </div>
                     </Modal.Body>
                     <Modal.Header className="d-flex justify-content-end p-3 bg-light border-top">
-                        <Button variant="secondary" className="me-2" onClick={handleClose}>
+                        <Button variant="secondary" className="me-2" onClick={handleRequestClose}>
                             Cancel
                         </Button>
                         <Button variant="success" type="submit">
@@ -880,6 +944,31 @@ const VineyardBlocks = () => {
                         </Button>
                     </Modal.Header>
                 </Form>
+            </Modal>
+
+            {/* ── Unsaved Changes Confirmation Modal ── */}
+            <Modal show={showUnsavedModal} onHide={() => setShowUnsavedModal(false)} centered>
+                <Modal.Header closeButton>
+                    <Modal.Title>Unsaved Changes</Modal.Title>
+                </Modal.Header>
+                <Modal.Body>
+                    <p className="m-0">
+                        You have unsaved changes for Block <strong>{formData.block_code || 'new block'}</strong>. Would you like to save your changes before closing?
+                    </p>
+                </Modal.Body>
+                <Modal.Footer className="d-flex justify-content-between">
+                    <Button variant="outline-danger" onClick={handleForceDiscard}>
+                        Discard Changes
+                    </Button>
+                    <div>
+                        <Button variant="secondary" className="me-2" onClick={() => setShowUnsavedModal(false)}>
+                            Keep Editing
+                        </Button>
+                        <Button variant="success" onClick={handleSaveAndClose}>
+                            Save Changes
+                        </Button>
+                    </div>
+                </Modal.Footer>
             </Modal>
             
             </Container>
